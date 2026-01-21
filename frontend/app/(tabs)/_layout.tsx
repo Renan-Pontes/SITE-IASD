@@ -5,12 +5,9 @@ import { HapticTab } from '@/components/haptic-tab';
 import { IconSymbol } from '@/components/ui/icon-symbol';
 import { Colors } from '@/constants/theme';
 import { useColorScheme } from '@/hooks/use-color-scheme';
-import { useAuth } from '@/lib/auth';
 
 export default function TabLayout() {
   const colorScheme = useColorScheme();
-  const { user } = useAuth();
-  const isAdmin = Boolean(user?.is_staff || user?.is_superuser);
 
   return (
     <Tabs
@@ -22,35 +19,17 @@ export default function TabLayout() {
       <Tabs.Screen
         name="index"
         options={{
-          title: 'Igreja',
+          title: 'Home',
           tabBarIcon: ({ color }) => <IconSymbol size={28} name="house.fill" color={color} />,
         }}
       />
       <Tabs.Screen
         name="explore"
         options={{
-          title: 'Eventos',
-          tabBarIcon: ({ color }) => <IconSymbol size={28} name="calendar" color={color} />,
+          title: 'Explore',
+          tabBarIcon: ({ color }) => <IconSymbol size={28} name="paperplane.fill" color={color} />,
         }}
       />
-      <Tabs.Screen
-        name="account"
-        options={{
-          title: 'Conta',
-          tabBarIcon: ({ color }) => (
-            <IconSymbol size={28} name="person.crop.circle" color={color} />
-          ),
-        }}
-      />
-      {isAdmin ? (
-        <Tabs.Screen
-          name="dashboard"
-          options={{
-            title: 'Controle',
-            tabBarIcon: ({ color }) => <IconSymbol size={28} name="gearshape" color={color} />,
-          }}
-        />
-      ) : null}
     </Tabs>
   );
 }
