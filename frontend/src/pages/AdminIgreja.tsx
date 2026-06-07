@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
-import { ArrowLeft, Plus, Check, X, Save } from "lucide-react";
+import { ArrowLeft, Plus, Check, X, Save, Camera } from "lucide-react";
+import { UploadFoto } from "../components/UploadFoto";
 import { api, ApiError } from "../api/client";
 import { useAuth } from "../auth/AuthContext";
 import { useToast } from "../ui/Toast";
@@ -304,6 +305,16 @@ function Dados({ igreja, aoSalvar }: { igreja: Igreja; aoSalvar: (i: Igreja) => 
 
   return (
     <Card className="space-y-3 p-4">
+      <div className="flex items-center gap-3">
+        {igreja.foto ? (
+          <img src={igreja.foto} alt={igreja.nome} className="h-16 w-16 rounded-xl object-cover" />
+        ) : (
+          <div className="flex h-16 w-16 items-center justify-center rounded-xl bg-marca-100 text-2xl">⛪</div>
+        )}
+        <UploadFoto endpoint={`/api/igrejas/${igreja.id}/foto/`} onPronto={aoSalvar}>
+          <Camera size={18} /> Foto da igreja
+        </UploadFoto>
+      </div>
       <Campo label="Nome">
         <input className="input" value={form.nome} onChange={set("nome")} />
       </Campo>

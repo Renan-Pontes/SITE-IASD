@@ -26,6 +26,7 @@ urlpatterns = [
     path("auth/login/", TokenObtainPairView.as_view(), name="login"),
     path("auth/refresh/", TokenRefreshView.as_view(), name="refresh"),
     path("auth/me/", views.MeView.as_view(), name="me"),
+    path("auth/me/foto/", views.MeFotoView.as_view(), name="me-foto"),
     path("auth/trocar-senha/", views.TrocarSenhaView.as_view(), name="trocar-senha"),
     # Agregadores
     path("dashboard/", views.dashboard, name="dashboard"),

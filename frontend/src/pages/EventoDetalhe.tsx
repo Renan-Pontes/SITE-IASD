@@ -2,8 +2,9 @@ import { useEffect, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import {
   Clock, MapPin, Users, CheckCircle2, HelpCircle, XCircle, Church,
-  Check, X, Pencil, Trash2, ArrowLeft,
+  Check, X, Pencil, Trash2, ArrowLeft, Image as ImageIcon,
 } from "lucide-react";
+import { UploadFoto } from "../components/UploadFoto";
 import { api, ApiError } from "../api/client";
 import { useAuth } from "../auth/AuthContext";
 import { useToast } from "../ui/Toast";
@@ -16,7 +17,7 @@ export default function EventoDetalhe() {
   const { id } = useParams();
   const nav = useNavigate();
   const toast = useToast();
-  const { logado } = useAuth();
+  const { logado, me } = useAuth();
   const [evento, setEvento] = useState<Evento | null>(null);
   const [participantes, setParticipantes] = useState<Inscricao[]>([]);
   const [salvando, setSalvando] = useState(false);
@@ -95,6 +96,8 @@ export default function EventoDetalhe() {
   const mapsUrl = `https://www.google.com/maps/search/${encodeURIComponent(
     evento.igreja_nome + (evento.sala_nome ? " " + evento.sala_nome : ""),
   )}`;
+  const podeGerir =
+    evento.posso_aprovar || (!!me && evento.criado_por === me.profile.id);
 
   return (
     <div className="space-y-5 pb-4">
@@ -103,6 +106,9 @@ export default function EventoDetalhe() {
       </button>
 
       <Card className="overflow-hidden">
+        {evento.foto && (
+          <img src={evento.foto} alt={evento.titulo} className="h-44 w-full object-cover" />
+        )}
         <div className="bg-gradient-to-br from-marca-600 to-marca-800 p-6 text-white">
           <div className="mb-2 flex flex-wrap gap-2">
             {evento.grupo_nome && <Badge cor="azul">{evento.grupo_nome}</Badge>}
@@ -201,13 +207,20 @@ export default function EventoDetalhe() {
       )}
 
       {/* Ações do criador/liderança */}
-      {evento.posso_aprovar && (
+      {podeGerir && (
         <div className="flex gap-3">
           <Link to={`/evento/${evento.id}/editar`} className="flex-1">
             <Botao variante="secondary" full>
               <Pencil size={18} /> Editar
             </Botao>
           </Link>
+          <UploadFoto
+            endpoint={`/api/eventos/${evento.id}/foto/`}
+            onPronto={setEvento}
+            className="btn-secondary !px-4"
+          >
+            <ImageIcon size={18} />
+          </UploadFoto>
           <Botao variante="ghost" onClick={() => setConfirmarExcluir(true)}>
             <Trash2 size={18} className="text-red-500" />
           </Botao>

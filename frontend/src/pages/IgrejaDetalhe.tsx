@@ -76,6 +76,9 @@ export default function IgrejaDetalhe() {
   return (
     <div className="space-y-5">
       <Card className="overflow-hidden">
+        {igreja.foto && (
+          <img src={igreja.foto} alt={igreja.nome} className="h-40 w-full object-cover" />
+        )}
         <div className="bg-gradient-to-br from-marca-600 to-marca-800 p-6 text-white">
           <h1 className="text-2xl font-extrabold">{igreja.nome}</h1>
           <div className="mt-2 space-y-1 text-marca-50">

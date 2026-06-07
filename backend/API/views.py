@@ -65,6 +65,16 @@ from .utils import haversine_km, log_acao, notificar
 User = get_user_model()
 
 
+def _salvar_foto(instance, request):
+    """Salva o arquivo enviado no campo `foto` da instância. Retorna False se vazio."""
+    arquivo = request.FILES.get("foto")
+    if not arquivo:
+        return False
+    instance.foto = arquivo
+    instance.save(update_fields=["foto"])
+    return True
+
+
 # --------------------------------------------------------------------------- #
 # Autenticação / perfil
 # --------------------------------------------------------------------------- #
@@ -109,6 +119,17 @@ class MeView(APIView):
         serializer.is_valid(raise_exception=True)
         serializer.save()
         return Response(serializer.data)
+
+
+class MeFotoView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        if not _salvar_foto(request.user.profile, request):
+            return Response({"foto": "Envie um arquivo de imagem."}, status=400)
+        return Response(
+            ProfileSerializer(request.user.profile, context={"request": request}).data
+        )
 
 
 class TrocarSenhaView(APIView):
@@ -271,6 +292,15 @@ class IgrejaViewSet(viewsets.ModelViewSet):
         igreja = self.get_object()
         qs = Sala.objects.filter(igreja=igreja, ativo=True)
         return Response(SalaSerializer(qs, many=True).data)
+
+    @action(detail=True, methods=["post"], permission_classes=[IsAuthenticated])
+    def foto(self, request, pk=None):
+        igreja = self.get_object()
+        if not roles.eh_lideranca_igreja(request.user, igreja):
+            return Response({"detail": "Sem permissão."}, status=403)
+        if not _salvar_foto(igreja, request):
+            return Response({"foto": "Envie um arquivo de imagem."}, status=400)
+        return Response(IgrejaSerializer(igreja, context={"request": request}).data)
 
     @action(detail=True, methods=["get"])
     def lideranca(self, request, pk=None):
@@ -439,6 +469,15 @@ class GrupoViewSet(viewsets.ModelViewSet):
         GrupoMembro.objects.filter(usuario=request.user, grupo=grupo).delete()
         log_acao(request.user, "sair_grupo", "Grupo", grupo.id)
         return Response({"detail": "Você saiu do grupo."})
+
+    @action(detail=True, methods=["post"], permission_classes=[IsAuthenticated])
+    def foto(self, request, pk=None):
+        grupo = self.get_object()
+        if not roles.eh_lideranca_grupo(request.user, grupo):
+            return Response({"detail": "Sem permissão."}, status=403)
+        if not _salvar_foto(grupo, request):
+            return Response({"foto": "Envie um arquivo de imagem."}, status=400)
+        return Response(GrupoSerializer(grupo, context={"request": request}).data)
 
     @action(detail=True, methods=["get"])
     def membros(self, request, pk=None):
@@ -757,6 +796,18 @@ class EventoViewSet(viewsets.ModelViewSet):
         return Response(
             InscricaoSerializer(qs, many=True, context={"request": request}).data
         )
+
+    @action(detail=True, methods=["post"], permission_classes=[IsAuthenticated])
+    def foto(self, request, pk=None):
+        evento = self.get_object()
+        if not (
+            evento.criado_por_id == request.user.id
+            or roles.eh_lideranca_igreja(request.user, evento.igreja)
+        ):
+            return Response({"detail": "Sem permissão."}, status=403)
+        if not _salvar_foto(evento, request):
+            return Response({"foto": "Envie um arquivo de imagem."}, status=400)
+        return Response(EventoSerializer(evento, context={"request": request}).data)
 
 
 # --------------------------------------------------------------------------- #

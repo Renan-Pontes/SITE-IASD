@@ -8,6 +8,7 @@ import { useAuth } from "../auth/AuthContext";
 import { useToast } from "../ui/Toast";
 import { Botao, Card, Campo, Avatar, Badge } from "../ui/components";
 import { Modal } from "../ui/Modal";
+import { UploadFoto } from "../components/UploadFoto";
 import { rotulo } from "../lib/format";
 
 export default function Perfil() {
@@ -64,7 +65,14 @@ export default function Perfil() {
       <h1 className="text-2xl font-extrabold text-slate-800">Meu perfil</h1>
 
       <Card className="flex items-center gap-4 p-5">
-        <Avatar nome={p.nome} foto={p.foto} size={64} />
+        <div className="relative shrink-0">
+          <Avatar nome={p.nome} foto={p.foto} size={64} />
+          <UploadFoto
+            endpoint="/api/auth/me/foto/"
+            onPronto={recarregar}
+            className="absolute -bottom-1 -right-1 flex h-7 w-7 items-center justify-center rounded-full bg-marca-700 text-white shadow"
+          />
+        </div>
         <div className="min-w-0">
           <h2 className="truncate text-xl font-bold text-slate-800">{p.nome}</h2>
           <p className="truncate text-slate-500">{p.email}</p>

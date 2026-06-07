@@ -5,8 +5,9 @@ Lista do que evoluir a seguir. Marcados com ✅ o que já caiu como melhoria nes
 
 ## 🔝 Prioridade alta (próximos passos)
 
-- [ ] **Upload de fotos** (perfil, igreja, grupo, evento). Backend já tem os campos
-      `ImageField`; falta o endpoint multipart e o seletor de arquivo no front.
+- [x] ~~**Upload de fotos**~~ ✅ feito: endpoints multipart (perfil, igreja, grupo,
+      evento) com checagem de permissão + componente de upload no front (avatar,
+      banner de evento/igreja/grupo). Limite de 5 MB.
 - [x] ~~**PWA / instalável**~~ ✅ feito: manifest + ícones + service worker
       (network-first, registrado só em produção). Instala como app e abre offline.
 - [ ] **"Esqueci minha senha"** por e-mail (hoje só há troca de senha logado).

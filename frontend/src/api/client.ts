@@ -100,6 +100,13 @@ export const api = {
   del: <T = any>(p: string) => request<T>(p, { method: "DELETE" }),
 };
 
+// Upload de arquivo (multipart). O navegador define o boundary do Content-Type.
+export async function uploadArquivo<T = any>(path: string, file: File, campo = "foto") {
+  const fd = new FormData();
+  fd.append(campo, file);
+  return request<T>(path, { method: "POST", body: fd, raw: true });
+}
+
 // Autenticação
 export async function login(email: string, senha: string) {
   const data = await request<{ access: string; refresh: string }>("/api/auth/login/", {

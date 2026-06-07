@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
-import { ArrowLeft, Send, LogIn, Check, X, Plus } from "lucide-react";
+import { ArrowLeft, Send, LogIn, Check, X, Plus, Camera } from "lucide-react";
+import { UploadFoto } from "../components/UploadFoto";
 import { api } from "../api/client";
 import { useAuth } from "../auth/AuthContext";
 import { useToast } from "../ui/Toast";
@@ -50,6 +51,9 @@ export default function GrupoDetalhe() {
       </button>
 
       <Card className="overflow-hidden">
+        {grupo.foto && (
+          <img src={grupo.foto} alt={grupo.nome} className="h-40 w-full object-cover" />
+        )}
         <div className="bg-gradient-to-br from-marca-600 to-marca-800 p-6 text-white">
           <Badge cor="ouro">{rotulo.tipoGrupo(grupo.tipo)}</Badge>
           <h1 className="mt-2 text-2xl font-extrabold">{grupo.nome}</h1>
@@ -59,15 +63,22 @@ export default function GrupoDetalhe() {
         </div>
         <div className="p-4">
           {grupo.descricao && <p className="mb-3 text-slate-600">{grupo.descricao}</p>}
-          {grupo.meu_status === "ativo" ? (
-            <Badge cor="marca">{rotulo.cargo(grupo.meu_cargo || "membro")}</Badge>
-          ) : grupo.meu_status === "pendente" ? (
-            <Badge cor="ouro">Aguardando aprovação</Badge>
-          ) : (
-            <Botao onClick={entrar}>
-              <LogIn size={18} /> Pedir para entrar
-            </Botao>
-          )}
+          <div className="flex flex-wrap items-center gap-3">
+            {grupo.meu_status === "ativo" ? (
+              <Badge cor="marca">{rotulo.cargo(grupo.meu_cargo || "membro")}</Badge>
+            ) : grupo.meu_status === "pendente" ? (
+              <Badge cor="ouro">Aguardando aprovação</Badge>
+            ) : (
+              <Botao onClick={entrar}>
+                <LogIn size={18} /> Pedir para entrar
+              </Botao>
+            )}
+            {souLider && (
+              <UploadFoto endpoint={`/api/grupos/${grupo.id}/foto/`} onPronto={setGrupo}>
+                <Camera size={18} /> Foto
+              </UploadFoto>
+            )}
+          </div>
         </div>
       </Card>
 
