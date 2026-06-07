@@ -1,38 +1,40 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { Link } from "react-router-dom";
 import { Plus, Vote, Lock, Clock3 } from "lucide-react";
 import { api, ApiError } from "../api/client";
 import { useAuth } from "../auth/AuthContext";
 import { useToast } from "../ui/Toast";
-import type { Pauta, Paginated } from "../lib/types";
+import type { Pauta } from "../lib/types";
 import { Botao, Card, Badge, SkeletonLista, Vazio, Campo } from "../ui/components";
 import { Modal } from "../ui/Modal";
+import { Sentinela } from "../components/Sentinela";
+import { useInfinite } from "../hooks/useInfinite";
 import { formatData } from "../lib/format";
 
 export default function Pautas() {
   const { me } = useAuth();
   const toast = useToast();
-  const [pautas, setPautas] = useState<Pauta[]>([]);
-  const [carregando, setCarregando] = useState(true);
   const [criar, setCriar] = useState(false);
 
   const igrejasLideranca = (me?.vinculos_igreja || []).filter(
     (v) => v.eh_lideranca && v.status === "ativo",
   );
 
-  const carregar = () => {
-    setCarregando(true);
-    api
-      .get<Paginated<Pauta>>("/api/pautas/?ordering=-criado_em")
-      .then((d) => setPautas(d.results))
-      .finally(() => setCarregando(false));
-  };
-  useEffect(carregar, []);
+  const {
+    items: pautas,
+    hasMore,
+    loading: carregando,
+    carregarMais,
+    recarregar,
+  } = useInfinite<Pauta>(
+    (page) => `/api/pautas/?ordering=-criado_em&page=${page}`,
+    [],
+  );
 
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-extrabold text-slate-800">Pautas</h1>
+        <h1 className="text-2xl font-extrabold text-slate-800 dark:text-slate-100">Pautas</h1>
         {igrejasLideranca.length > 0 && (
           <Botao onClick={() => setCriar(true)}>
             <Plus size={18} /> Nova
@@ -43,7 +45,7 @@ export default function Pautas() {
         Espaço dos anciões para registrar e votar as decisões da igreja.
       </p>
 
-      {carregando ? (
+      {carregando && pautas.length === 0 ? (
         <SkeletonLista n={3} />
       ) : pautas.length === 0 ? (
         <Vazio
@@ -52,36 +54,39 @@ export default function Pautas() {
           icone={<Vote size={48} />}
         />
       ) : (
-        <div className="space-y-3">
-          {pautas.map((p) => (
-            <Link key={p.id} to={`/pauta/${p.id}`}>
-              <Card className="p-4 hover:shadow-md">
-                <div className="mb-1 flex items-center gap-2">
-                  {p.anonima && (
-                    <Badge cor="cinza">
-                      <Lock size={12} /> Secreta
-                    </Badge>
-                  )}
-                  {p.status === "encerrada" || p.expirada ? (
-                    <Badge cor="cinza">Encerrada</Badge>
-                  ) : (
-                    <Badge cor="marca">Aberta</Badge>
-                  )}
-                  {p.meu_voto && <Badge cor="ouro">Você votou</Badge>}
-                </div>
-                <h3 className="text-lg font-bold text-slate-800">{p.titulo}</h3>
-                <p className="text-sm text-slate-500">
-                  {p.igreja_nome} • {p.total_votos} voto{p.total_votos !== 1 ? "s" : ""}
-                </p>
-                {p.prazo_votacao && (
-                  <p className="mt-1 flex items-center gap-1 text-xs text-slate-400">
-                    <Clock3 size={13} /> Prazo: {formatData(p.prazo_votacao)}
+        <>
+          <div className="space-y-3">
+            {pautas.map((p) => (
+              <Link key={p.id} to={`/pauta/${p.id}`}>
+                <Card className="p-4 hover:shadow-md">
+                  <div className="mb-1 flex items-center gap-2">
+                    {p.anonima && (
+                      <Badge cor="cinza">
+                        <Lock size={12} /> Secreta
+                      </Badge>
+                    )}
+                    {p.status === "encerrada" || p.expirada ? (
+                      <Badge cor="cinza">Encerrada</Badge>
+                    ) : (
+                      <Badge cor="marca">Aberta</Badge>
+                    )}
+                    {p.meu_voto && <Badge cor="ouro">Você votou</Badge>}
+                  </div>
+                  <h3 className="text-lg font-bold text-slate-800 dark:text-slate-100">{p.titulo}</h3>
+                  <p className="text-sm text-slate-500">
+                    {p.igreja_nome} • {p.total_votos} voto{p.total_votos !== 1 ? "s" : ""}
                   </p>
-                )}
-              </Card>
-            </Link>
-          ))}
-        </div>
+                  {p.prazo_votacao && (
+                    <p className="mt-1 flex items-center gap-1 text-xs text-slate-400">
+                      <Clock3 size={13} /> Prazo: {formatData(p.prazo_votacao)}
+                    </p>
+                  )}
+                </Card>
+              </Link>
+            ))}
+          </div>
+          <Sentinela onVisivel={carregarMais} ativo={hasMore} carregando={carregando} />
+        </>
       )}
 
       <CriarPauta
@@ -90,7 +95,7 @@ export default function Pautas() {
         igrejas={igrejasLideranca}
         aoCriar={() => {
           setCriar(false);
-          carregar();
+          recarregar();
           toast.sucesso("Pauta criada!");
         }}
       />

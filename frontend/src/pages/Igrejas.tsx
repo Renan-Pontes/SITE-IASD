@@ -1,35 +1,36 @@
-import { useEffect, useState } from "react";
+import { useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { MapPin, Search, Navigation, Users } from "lucide-react";
-import { api } from "../api/client";
-import type { Igreja, Paginated } from "../lib/types";
+import type { Igreja } from "../lib/types";
 import { Card, SkeletonLista, Vazio, Badge } from "../ui/components";
+import { Sentinela } from "../components/Sentinela";
+import { useInfinite } from "../hooks/useInfinite";
 import { useToast } from "../ui/Toast";
 
 export default function Igrejas() {
   const toast = useToast();
-  const [igrejas, setIgrejas] = useState<Igreja[]>([]);
   const [busca, setBusca] = useState("");
-  const [carregando, setCarregando] = useState(true);
+  const [buscaAtiva, setBuscaAtiva] = useState("");
   const [coords, setCoords] = useState<{ lat: number; lng: number } | null>(null);
 
-  const carregar = (lat?: number, lng?: number, q?: string) => {
-    setCarregando(true);
-    const params = new URLSearchParams();
-    if (lat != null && lng != null) {
-      params.set("lat", String(lat));
-      params.set("lng", String(lng));
-    }
-    if (q) params.set("search", q);
-    api
-      .get<Paginated<Igreja>>(`/api/igrejas/?${params.toString()}`)
-      .then((d) => setIgrejas(d.results))
-      .finally(() => setCarregando(false));
-  };
+  const buildPath = useMemo(
+    () => (page: number) => {
+      const params = new URLSearchParams();
+      if (coords) {
+        params.set("lat", String(coords.lat));
+        params.set("lng", String(coords.lng));
+      }
+      if (buscaAtiva) params.set("search", buscaAtiva);
+      params.set("page", String(page));
+      return `/api/igrejas/?${params.toString()}`;
+    },
+    [coords, buscaAtiva],
+  );
 
-  useEffect(() => {
-    carregar();
-  }, []);
+  const { items: igrejas, hasMore, loading, carregarMais } = useInfinite<Igreja>(
+    buildPath,
+    [buscaAtiva, coords?.lat, coords?.lng],
+  );
 
   const usarLocalizacao = () => {
     if (!navigator.geolocation) {
@@ -38,9 +39,7 @@ export default function Igrejas() {
     }
     navigator.geolocation.getCurrentPosition(
       (pos) => {
-        const c = { lat: pos.coords.latitude, lng: pos.coords.longitude };
-        setCoords(c);
-        carregar(c.lat, c.lng, busca);
+        setCoords({ lat: pos.coords.latitude, lng: pos.coords.longitude });
         toast.sucesso("Ordenado por proximidade.");
       },
       () => toast.erro("Não foi possível obter sua localização."),
@@ -49,12 +48,12 @@ export default function Igrejas() {
 
   const buscar = (e: React.FormEvent) => {
     e.preventDefault();
-    carregar(coords?.lat, coords?.lng, busca);
+    setBuscaAtiva(busca.trim());
   };
 
   return (
     <div className="space-y-4">
-      <h1 className="text-2xl font-extrabold text-slate-800">Igrejas</h1>
+      <h1 className="text-2xl font-extrabold text-slate-800 dark:text-slate-100">Igrejas</h1>
 
       <form onSubmit={buscar} className="flex gap-2">
         <div className="relative flex-1">
@@ -77,40 +76,43 @@ export default function Igrejas() {
         </button>
       </form>
 
-      {carregando ? (
-        <SkeletonLista n={3} />
+      {loading && igrejas.length === 0 ? (
+        <SkeletonLista n={4} />
       ) : igrejas.length === 0 ? (
         <Vazio titulo="Nenhuma igreja encontrada" descricao="Tente outro termo de busca." />
       ) : (
-        <div className="space-y-3">
-          {igrejas.map((ig) => (
-            <Link key={ig.id} to={`/igreja/${ig.id}`}>
-              <Card className="flex items-center gap-4 p-4 transition hover:shadow-md">
-                <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl bg-marca-100 text-2xl">
-                  ⛪
-                </div>
-                <div className="min-w-0 flex-1">
-                  <h3 className="truncate text-lg font-bold text-slate-800">{ig.nome}</h3>
-                  <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-slate-500">
-                    <span className="flex items-center gap-1">
-                      <MapPin size={15} />
-                      {ig.cidade}
-                      {ig.estado && `, ${ig.estado}`}
-                    </span>
-                    <span className="flex items-center gap-1">
-                      <Users size={15} />
-                      {ig.total_membros}
-                    </span>
+        <>
+          <div className="space-y-3">
+            {igrejas.map((ig) => (
+              <Link key={ig.id} to={`/igreja/${ig.id}`}>
+                <Card className="flex items-center gap-4 p-4 transition hover:shadow-md">
+                  <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl bg-marca-100 text-2xl">
+                    ⛪
                   </div>
-                </div>
-                {ig.distancia_km != null && (
-                  <Badge cor="marca">{ig.distancia_km} km</Badge>
-                )}
-                {ig.meu_status === "ativo" && <Badge cor="ouro">Minha</Badge>}
-              </Card>
-            </Link>
-          ))}
-        </div>
+                  <div className="min-w-0 flex-1">
+                    <h3 className="truncate text-lg font-bold text-slate-800 dark:text-slate-100">
+                      {ig.nome}
+                    </h3>
+                    <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-slate-500">
+                      <span className="flex items-center gap-1">
+                        <MapPin size={15} />
+                        {ig.cidade}
+                        {ig.estado && `, ${ig.estado}`}
+                      </span>
+                      <span className="flex items-center gap-1">
+                        <Users size={15} />
+                        {ig.total_membros}
+                      </span>
+                    </div>
+                  </div>
+                  {ig.distancia_km != null && <Badge cor="marca">{ig.distancia_km} km</Badge>}
+                  {ig.meu_status === "ativo" && <Badge cor="ouro">Minha</Badge>}
+                </Card>
+              </Link>
+            ))}
+          </div>
+          <Sentinela onVisivel={carregarMais} ativo={hasMore} carregando={loading} />
+        </>
       )}
     </div>
   );
