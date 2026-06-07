@@ -4,6 +4,8 @@ import {
   LogOut, Type, Church, Settings, ShieldCheck, Save, KeyRound, Sun, Moon, Monitor,
 } from "lucide-react";
 import { getTema, setTema as aplicarTemaPref, type Tema } from "../lib/tema";
+import { CampoSenha, FeedbackSenha } from "../components/CampoSenha";
+import { validarSenha } from "../lib/senha";
 import { api, ApiError } from "../api/client";
 import { useAuth } from "../auth/AuthContext";
 import { useToast } from "../ui/Toast";
@@ -239,15 +241,22 @@ function TrocarSenha({ aberto, aoFechar }: { aberto: boolean; aoFechar: () => vo
   const toast = useToast();
   const [atual, setAtual] = useState("");
   const [nova, setNova] = useState("");
+  const [nova2, setNova2] = useState("");
   const [salvando, setSalvando] = useState(false);
 
+  const forca = validarSenha(nova);
+  const confere = nova.length > 0 && nova === nova2;
+  const podeEnviar = !!atual && forca.ok && confere;
+
   const submeter = async () => {
+    if (!podeEnviar) return;
     setSalvando(true);
     try {
       await api.post("/api/auth/trocar-senha/", { senha_atual: atual, senha_nova: nova });
       toast.sucesso("Senha alterada!");
       setAtual("");
       setNova("");
+      setNova2("");
       aoFechar();
     } catch (err) {
       toast.erro(err instanceof ApiError ? err.message : "Erro ao trocar senha.");
@@ -266,29 +275,38 @@ function TrocarSenha({ aberto, aoFechar }: { aberto: boolean; aoFechar: () => vo
           <Botao variante="ghost" full onClick={aoFechar}>
             Cancelar
           </Botao>
-          <Botao full onClick={submeter} carregando={salvando}>
+          <Botao full onClick={submeter} carregando={salvando} disabled={!podeEnviar}>
             Salvar
           </Botao>
         </>
       }
     >
       <div className="space-y-3">
-        <Campo label="Senha atual">
-          <input
-            type="password"
-            className="input"
-            value={atual}
-            onChange={(e) => setAtual(e.target.value)}
-          />
-        </Campo>
-        <Campo label="Nova senha" dica="Mínimo de 6 caracteres.">
-          <input
-            type="password"
-            className="input"
-            value={nova}
-            onChange={(e) => setNova(e.target.value)}
-          />
-        </Campo>
+        <CampoSenha label="Senha atual" value={atual} onChange={(e) => setAtual(e.target.value)} autoComplete="current-password" />
+        <CampoSenha
+          label="Nova senha"
+          value={nova}
+          onChange={(e) => setNova(e.target.value)}
+          autoComplete="new-password"
+          feedback={
+            <FeedbackSenha
+              estado={nova.length === 0 ? "vazio" : forca.ok ? "ok" : "erro"}
+              texto={nova.length === 0 ? "8+ caracteres, 1 letra e 1 número" : forca.motivo}
+            />
+          }
+        />
+        <CampoSenha
+          label="Confirmar nova senha"
+          value={nova2}
+          onChange={(e) => setNova2(e.target.value)}
+          autoComplete="new-password"
+          feedback={
+            <FeedbackSenha
+              estado={nova2.length === 0 ? "vazio" : confere ? "ok" : "erro"}
+              texto={nova2.length === 0 ? "Repita a nova senha" : confere ? "As senhas conferem" : "As senhas não conferem"}
+            />
+          }
+        />
       </div>
     </Modal>
   );

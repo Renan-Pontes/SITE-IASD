@@ -1,23 +1,35 @@
 import { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import { registrar } from "../api/client";
+import { registrar, ApiError } from "../api/client";
 import { useAuth } from "../auth/AuthContext";
 import { useToast } from "../ui/Toast";
 import { Botao, Campo } from "../ui/components";
-import { ApiError } from "../api/client";
+import { CampoSenha, FeedbackSenha } from "../components/CampoSenha";
+import { validarSenha } from "../lib/senha";
 
 export default function Cadastro() {
   const { recarregar } = useAuth();
   const nav = useNavigate();
   const toast = useToast();
-  const [form, setForm] = useState({ nome: "", email: "", telefone: "", password: "" });
+  const [form, setForm] = useState({
+    nome: "",
+    email: "",
+    telefone: "",
+    password: "",
+    password2: "",
+  });
   const [carregando, setCarregando] = useState(false);
 
   const set = (k: string) => (e: React.ChangeEvent<HTMLInputElement>) =>
     setForm({ ...form, [k]: e.target.value });
 
+  const forca = validarSenha(form.password);
+  const confere = form.password.length > 0 && form.password === form.password2;
+  const podeEnviar = forca.ok && confere && form.nome.trim() && form.email.trim();
+
   const submeter = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!podeEnviar) return;
     setCarregando(true);
     try {
       await registrar({
@@ -30,9 +42,7 @@ export default function Cadastro() {
       toast.sucesso("Conta criada! Agora escolha sua igreja.");
       nav("/igrejas", { replace: true });
     } catch (err) {
-      const msg =
-        err instanceof ApiError ? err.message : "Não foi possível criar a conta.";
-      toast.erro(msg);
+      toast.erro(err instanceof ApiError ? err.message : "Não foi possível criar a conta.");
     } finally {
       setCarregando(false);
     }
@@ -80,18 +90,41 @@ export default function Cadastro() {
                 autoComplete="tel"
               />
             </Campo>
-            <Campo label="Senha" dica="Mínimo de 6 caracteres.">
-              <input
-                type="password"
-                className="input"
+
+            <div className="grid gap-4 sm:grid-cols-2">
+              <CampoSenha
+                label="Senha"
                 value={form.password}
                 onChange={set("password")}
-                required
-                minLength={6}
                 autoComplete="new-password"
+                feedback={
+                  <FeedbackSenha
+                    estado={form.password.length === 0 ? "vazio" : forca.ok ? "ok" : "erro"}
+                    texto={form.password.length === 0 ? "8+ caracteres, 1 letra e 1 número" : forca.motivo}
+                  />
+                }
               />
-            </Campo>
-            <Botao type="submit" full carregando={carregando}>
+              <CampoSenha
+                label="Confirmar senha"
+                value={form.password2}
+                onChange={set("password2")}
+                autoComplete="new-password"
+                feedback={
+                  <FeedbackSenha
+                    estado={form.password2.length === 0 ? "vazio" : confere ? "ok" : "erro"}
+                    texto={
+                      form.password2.length === 0
+                        ? "Repita a senha"
+                        : confere
+                          ? "As senhas conferem"
+                          : "As senhas não conferem"
+                    }
+                  />
+                }
+              />
+            </div>
+
+            <Botao type="submit" full carregando={carregando} disabled={!podeEnviar}>
               Criar conta
             </Botao>
             <p className="text-center text-sm text-slate-500">

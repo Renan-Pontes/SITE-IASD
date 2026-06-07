@@ -3,6 +3,7 @@ import { Link, useLocation, useNavigate } from "react-router-dom";
 import { useAuth } from "../auth/AuthContext";
 import { useToast } from "../ui/Toast";
 import { Botao, Campo } from "../ui/components";
+import { CampoSenha } from "../components/CampoSenha";
 import { ApiError } from "../api/client";
 
 export default function Entrar() {
@@ -60,16 +61,12 @@ export default function Entrar() {
                 placeholder="voce@email.com"
               />
             </Campo>
-            <Campo label="Senha">
-              <input
-                type="password"
-                className="input"
-                value={senha}
-                onChange={(e) => setSenha(e.target.value)}
-                autoComplete="current-password"
-                required
-              />
-            </Campo>
+            <CampoSenha
+              label="Senha"
+              value={senha}
+              onChange={(e) => setSenha(e.target.value)}
+              autoComplete="current-password"
+            />
             <Botao type="submit" full carregando={carregando}>
               Entrar
             </Botao>
