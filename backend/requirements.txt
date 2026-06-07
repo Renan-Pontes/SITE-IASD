@@ -6,6 +6,8 @@ djangorestframework-simplejwt>=5.5,<5.6
 django-cors-headers>=4.4
 django-filter>=24.0
 Pillow>=11.0
-# MySQL em produção (driver puro-Python, não precisa compilar):
-PyMySQL>=1.1
-# Alternativa C (mais rápida, exige toolchain): mysqlclient>=2.2
+# Servir arquivos estáticos em produção (PythonAnywhere) sem Nginx:
+whitenoise>=6.6
+# Ler variáveis de ambiente do .env:
+python-dotenv>=1.0
+# Banco: SQLite (padrão do Django) — não precisa de driver extra.

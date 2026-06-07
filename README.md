@@ -31,13 +31,14 @@ votação de pautas pelos anciões e uma agenda digital para todos os membros.
 | Camada    | Tecnologia |
 |-----------|------------|
 | Backend   | Django 5 + Django REST Framework + SimpleJWT |
-| Banco     | SQLite (dev) · MySQL (produção, via `PyMySQL`) |
+| Banco     | SQLite (padrão do Django — dev e produção) |
 | Frontend  | Vite + React 18 + TypeScript + Tailwind CSS |
 | Auth      | JWT (access + refresh) |
+| Deploy    | Frontend → Vercel · Backend → PythonAnywhere |
 
 Documentação detalhada em [`docs/`](docs/):
 [Esquema do banco](docs/SCHEMA.md) · [Permissões/RBAC](docs/RBAC.md) ·
-[Princípios de UX](docs/UX.md).
+[Princípios de UX](docs/UX.md) · [Deploy](docs/DEPLOY.md).
 
 ---
 
@@ -96,25 +97,19 @@ Criadas pelo `seed_demo`:
 
 ---
 
-## 🐬 Usando MySQL (produção)
+## 🚀 Deploy (Vercel + PythonAnywhere)
 
-Crie o banco e configure o `.env` (veja [`backend/.env.example`](backend/.env.example)):
+O código já está preparado para deploy:
 
-```bash
-DB_ENGINE=mysql
-DB_NAME=iasd
-DB_USER=seu_usuario
-DB_PASSWORD=sua_senha
-DB_HOST=127.0.0.1
-DB_PORT=3306
-```
+- **Frontend → Vercel** (auto-deploy via GitHub, com rewrite de SPA).
+- **Backend → PythonAnywhere** (SQLite, WhiteNoise para estáticos, `.env` via
+  `python-dotenv`, healthcheck em `/api/health/`).
 
-```sql
-CREATE DATABASE iasd CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
-```
+Passo a passo completo (env vars, `collectstatic`, mapeamento de `/media/`,
+configuração do Web tab) em **[`docs/DEPLOY.md`](docs/DEPLOY.md)**.
 
-Depois rode `python manage.py migrate`. O projeto já usa `utf8mb4` e índices
-compostos pensados para MySQL.
+> O banco é **SQLite** (padrão do Django) tanto em dev quanto em produção —
+> sem servidor de banco para configurar.
 
 ---
 

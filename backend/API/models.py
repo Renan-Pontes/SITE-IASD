@@ -9,9 +9,9 @@ Visão geral do domínio:
 - Anciões deliberam por `Pauta`/`Voto` (com suporte a voto anônimo).
 - Grupos têm um chat (`Mensagem`).
 
-Decisões de modelagem para MySQL:
+Decisões de modelagem (SQLite, padrão do Django):
 - Índices compostos em Meta.indexes para as consultas quentes (agenda por igreja+data,
-  membros por igreja+status, etc.).
+  membros por igreja+status, etc.) — válidos em SQLite e em qualquer engine.
 - Slugs únicos e indexados para URLs amigáveis.
 - Soft-delete leve via flag `ativo` onde faz sentido (igreja, grupo, sala).
 - Coordenadas em DecimalField (precisão estável entre engines).

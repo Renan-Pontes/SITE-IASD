@@ -66,6 +66,13 @@ from .utils import haversine_km, log_acao, notificar
 User = get_user_model()
 
 
+@api_view(["GET"])
+@permission_classes([AllowAny])
+def health(request):
+    """Healthcheck simples para monitoramento/deploy (PythonAnywhere)."""
+    return Response({"status": "ok"})
+
+
 def _salvar_foto(instance, request):
     """Salva o arquivo enviado no campo `foto` da instância. Retorna False se vazio."""
     arquivo = request.FILES.get("foto")

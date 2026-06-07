@@ -1,6 +1,13 @@
 // Cliente HTTP minimalista sobre fetch, com JWT + refresh automático.
 
-const BASE = import.meta.env.VITE_API_URL || ""; // vazio = usa proxy do Vite
+// ⚠️ ANTES DE DEPLOYAR: troque pela sua URL do backend no PythonAnywhere.
+// Ex.: "https://renan.pythonanywhere.com" (sem barra no fim).
+const API_PROD = "https://SEU-USUARIO.pythonanywhere.com";
+
+// Em dev: vazio (usa o proxy do Vite -> :8000).
+// Em produção (Vercel): aponta direto pro PythonAnywhere — não precisa de env
+// var no Vercel. Mas se VITE_API_URL estiver definida, ela tem prioridade.
+const BASE = import.meta.env.VITE_API_URL || (import.meta.env.DEV ? "" : API_PROD);
 const ACCESS_KEY = "iasd_access";
 const REFRESH_KEY = "iasd_refresh";
 

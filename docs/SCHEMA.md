@@ -1,7 +1,8 @@
 # Esquema do banco — IASD Gestão
 
-Modelado para MySQL (utf8mb4), com índices compostos nas consultas quentes.
-Todas as tabelas vivem no app `API`.
+Banco **SQLite** (padrão do Django, dev e produção), com índices compostos nas
+consultas quentes. Todas as tabelas vivem no app `API`. Os índices abaixo valem
+igualmente em SQLite e em qualquer outro engine, caso o projeto cresça.
 
 ## Diagrama (entidades e relações)
 
@@ -44,7 +45,7 @@ AuditLog    (User, acao, entidade, entidade_id, detalhes JSON)
 | `Pauta.status` | aberta, encerrada |
 | `Voto.opcao` | sim, nao, abstencao |
 
-## Índices e restrições (otimização MySQL)
+## Índices e restrições
 
 | Tabela | Índice / restrição | Para quê |
 |--------|--------------------|----------|

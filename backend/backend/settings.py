@@ -10,7 +10,13 @@ import os
 from datetime import timedelta
 from pathlib import Path
 
+from dotenv import load_dotenv
+
 BASE_DIR = Path(__file__).resolve().parent.parent
+
+# Carrega variáveis de ambiente do backend/.env (se existir). Em produção
+# (PythonAnywhere) o WSGI também chama load_dotenv; aqui cobre dev e manage.py.
+load_dotenv(BASE_DIR / ".env")
 
 
 def env_bool(name, default=False):
@@ -54,6 +60,8 @@ INSTALLED_APPS = [
 MIDDLEWARE = [
     "corsheaders.middleware.CorsMiddleware",
     "django.middleware.security.SecurityMiddleware",
+    # WhiteNoise serve os arquivos estáticos em produção (sem precisar de Nginx).
+    "whitenoise.middleware.WhiteNoiseMiddleware",
     "django.contrib.sessions.middleware.SessionMiddleware",
     "django.middleware.common.CommonMiddleware",
     "django.middleware.csrf.CsrfViewMiddleware",
@@ -84,39 +92,16 @@ ASGI_APPLICATION = "backend.asgi.application"
 
 
 # --------------------------------------------------------------------------- #
-# Banco de dados — SQLite (dev) ou MySQL (prod) via DB_ENGINE
+# Banco de dados — SQLite (dev e produção)
+# Padrão do Django; roda igual no PythonAnywhere (free tier). O caminho do
+# arquivo pode ser sobrescrito por env var (útil no PA).
 # --------------------------------------------------------------------------- #
-DB_ENGINE = os.environ.get("DB_ENGINE", "sqlite").lower()
-
-if DB_ENGINE == "mysql":
-    # Driver puro-Python para não exigir toolchain de compilação.
-    import pymysql
-
-    pymysql.install_as_MySQLdb()
-
-    DATABASES = {
-        "default": {
-            "ENGINE": "django.db.backends.mysql",
-            "NAME": os.environ.get("DB_NAME", "iasd"),
-            "USER": os.environ.get("DB_USER", "root"),
-            "PASSWORD": os.environ.get("DB_PASSWORD", ""),
-            "HOST": os.environ.get("DB_HOST", "127.0.0.1"),
-            "PORT": os.environ.get("DB_PORT", "3306"),
-            "OPTIONS": {
-                "charset": "utf8mb4",
-                # Modo estrito evita inserções silenciosamente truncadas.
-                "init_command": "SET sql_mode='STRICT_TRANS_TABLES'",
-            },
-            "CONN_MAX_AGE": int(os.environ.get("DB_CONN_MAX_AGE", "60")),
-        }
+DATABASES = {
+    "default": {
+        "ENGINE": "django.db.backends.sqlite3",
+        "NAME": os.environ.get("DB_PATH", str(BASE_DIR / "db.sqlite3")),
     }
-else:
-    DATABASES = {
-        "default": {
-            "ENGINE": "django.db.backends.sqlite3",
-            "NAME": BASE_DIR / "db.sqlite3",
-        }
-    }
+}
 
 
 # --------------------------------------------------------------------------- #
@@ -149,6 +134,19 @@ STATIC_URL = "static/"
 STATIC_ROOT = BASE_DIR / "staticfiles"
 MEDIA_URL = "media/"
 MEDIA_ROOT = BASE_DIR / "media"
+
+# Em produção, WhiteNoise comprime e versiona os estáticos (cache infinito
+# seguro). Em dev usamos o storage simples (sem manifest), para não exigir
+# `collectstatic` e não quebrar o admin no runserver.
+_staticfiles_backend = (
+    "django.contrib.staticfiles.storage.StaticFilesStorage"
+    if DEBUG
+    else "whitenoise.storage.CompressedManifestStaticFilesStorage"
+)
+STORAGES = {
+    "default": {"BACKEND": "django.core.files.storage.FileSystemStorage"},
+    "staticfiles": {"BACKEND": _staticfiles_backend},
+}
 
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 

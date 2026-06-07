@@ -21,6 +21,8 @@ router.register("notificacoes", views.NotificacaoViewSet, basename="notificacao"
 router.register("auditoria", views.AuditLogViewSet, basename="auditoria")
 
 urlpatterns = [
+    # Healthcheck
+    path("health/", views.health, name="health"),
     # Autenticação (JWT)
     path("auth/register/", views.RegisterView.as_view(), name="register"),
     path("auth/login/", TokenObtainPairView.as_view(), name="login"),
