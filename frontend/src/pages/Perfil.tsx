@@ -1,8 +1,9 @@
 import { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import {
-  LogOut, Type, Church, Settings, ShieldCheck, Save, KeyRound,
+  LogOut, Type, Church, Settings, ShieldCheck, Save, KeyRound, Sun, Moon, Monitor,
 } from "lucide-react";
+import { getTema, setTema as aplicarTemaPref, type Tema } from "../lib/tema";
 import { api, ApiError } from "../api/client";
 import { useAuth } from "../auth/AuthContext";
 import { useToast } from "../ui/Toast";
@@ -18,6 +19,12 @@ export default function Perfil() {
   const [editando, setEditando] = useState(false);
   const [trocarSenha, setTrocarSenha] = useState(false);
   const [salvando, setSalvando] = useState(false);
+  const [tema, setTemaState] = useState<Tema>(getTema());
+
+  const mudarTema = (t: Tema) => {
+    setTemaState(t);
+    aplicarTemaPref(t);
+  };
 
   const [form, setForm] = useState({
     first_name: me?.profile.first_name || "",
@@ -187,6 +194,30 @@ export default function Perfil() {
             }`}
           />
         </button>
+      </Card>
+
+      {/* Tema */}
+      <Card className="p-4">
+        <p className="mb-3 font-semibold text-slate-700 dark:text-slate-200">Aparência</p>
+        <div className="grid grid-cols-3 gap-2">
+          {([
+            ["light", "Claro", Sun],
+            ["dark", "Escuro", Moon],
+            ["system", "Sistema", Monitor],
+          ] as [Tema, string, typeof Sun][]).map(([t, label, Icone]) => (
+            <button
+              key={t}
+              onClick={() => mudarTema(t)}
+              className={`flex flex-col items-center gap-1 rounded-xl border-2 py-3 text-sm font-semibold transition ${
+                tema === t
+                  ? "border-marca-600 bg-marca-50 text-marca-700 dark:bg-marca-900/40"
+                  : "border-slate-200 text-slate-600 hover:bg-slate-50"
+              }`}
+            >
+              <Icone size={22} /> {label}
+            </button>
+          ))}
+        </div>
       </Card>
 
       <Botao variante="secondary" full onClick={() => setTrocarSenha(true)}>

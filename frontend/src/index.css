@@ -69,3 +69,75 @@ body {
     @apply inline-flex items-center gap-1 rounded-full px-3 py-1 text-xs font-semibold;
   }
 }
+
+/* =========================================================================
+   Modo escuro — flipa os tons neutros (slate/branco) preservando as cores
+   da marca (verde/ouro). Cobre o app inteiro sem editar cada página.
+   ========================================================================= */
+.dark body {
+  background: #0f172a;
+  color: #e2e8f0;
+}
+/* Superfícies que usam @apply (não pegam o override utilitário) */
+.dark .card {
+  background-color: #1e293b;
+  border-color: #334155;
+}
+.dark .input {
+  background-color: #1e293b;
+  border-color: #334155;
+  color: #e2e8f0;
+}
+.dark .input::placeholder {
+  color: #64748b;
+}
+.dark .btn-secondary {
+  background-color: #1e293b;
+  border-color: #334155;
+  color: #6ee7b7;
+}
+.dark .btn-ghost {
+  color: #cbd5e1;
+}
+.dark .label {
+  color: #cbd5e1;
+}
+/* Overrides de utilitários neutros (maior especificidade que .classe) */
+.dark .bg-white,
+.dark .bg-white\/90 {
+  background-color: #1e293b;
+}
+.dark .bg-slate-50 {
+  background-color: #0f172a;
+}
+.dark .bg-slate-100,
+.dark .bg-slate-200 {
+  background-color: #334155;
+}
+.dark .hover\:bg-slate-100:hover {
+  background-color: #334155;
+}
+.dark .hover\:bg-slate-50:hover {
+  background-color: #1e293b;
+}
+.dark .text-slate-900,
+.dark .text-slate-800,
+.dark .text-slate-700 {
+  color: #e2e8f0;
+}
+.dark .text-slate-600,
+.dark .text-slate-500 {
+  color: #94a3b8;
+}
+.dark .text-slate-400,
+.dark .text-slate-300 {
+  color: #64748b;
+}
+.dark .border-slate-100,
+.dark .border-slate-200,
+.dark .border-slate-300 {
+  border-color: #334155;
+}
+.dark .bg-marca-50\/50 {
+  background-color: rgba(6, 78, 59, 0.35);
+}

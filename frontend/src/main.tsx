@@ -4,7 +4,11 @@ import { BrowserRouter } from "react-router-dom";
 import App from "./App";
 import { AuthProvider } from "./auth/AuthContext";
 import { ToastProvider } from "./ui/Toast";
+import { initTema } from "./lib/tema";
 import "./index.css";
+
+// Aplica o tema salvo antes de renderizar (evita flash).
+initTema();
 
 // PWA: registra o service worker apenas em produção (evita cache em dev).
 if (import.meta.env.PROD && "serviceWorker" in navigator) {
