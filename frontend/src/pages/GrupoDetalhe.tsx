@@ -116,6 +116,19 @@ function Chat({ grupoId, podeVer }: { grupoId: number; podeVer: boolean }) {
   const [texto, setTexto] = useState("");
   const [carregando, setCarregando] = useState(true);
   const fimRef = useRef<HTMLDivElement>(null);
+  const ultimoId = useRef(0);
+
+  // Mescla mensagens novas evitando duplicatas, mantendo ordem por id.
+  const mesclar = (novas: Mensagem[]) => {
+    if (!novas.length) return;
+    setMensagens((atuais) => {
+      const vistos = new Set(atuais.map((m) => m.id));
+      const extras = novas.filter((m) => !vistos.has(m.id));
+      if (!extras.length) return atuais;
+      ultimoId.current = Math.max(ultimoId.current, ...extras.map((m) => m.id));
+      return [...atuais, ...extras];
+    });
+  };
 
   useEffect(() => {
     if (!podeVer) {
@@ -123,20 +136,34 @@ function Chat({ grupoId, podeVer }: { grupoId: number; podeVer: boolean }) {
       return;
     }
     let vivo = true;
-    const carregar = () =>
+
+    // Carga inicial completa.
+    api
+      .get<Mensagem[]>(`/api/grupos/${grupoId}/mensagens/`)
+      .then((m) => {
+        if (!vivo) return;
+        setMensagens(m);
+        ultimoId.current = m.length ? m[m.length - 1].id : 0;
+        setCarregando(false);
+      })
+      .catch(() => setCarregando(false));
+
+    // Polling incremental (só busca mensagens novas, e pausa com a aba oculta).
+    const buscarNovas = () => {
+      if (document.hidden) return;
       api
-        .get<Mensagem[]>(`/api/grupos/${grupoId}/mensagens/`)
-        .then((m) => {
-          if (!vivo) return;
-          setMensagens(m);
-          setCarregando(false);
-        })
-        .catch(() => setCarregando(false));
-    carregar();
-    const t = setInterval(carregar, 8000);
+        .get<Mensagem[]>(`/api/grupos/${grupoId}/mensagens/?depois_de=${ultimoId.current}`)
+        .then((novas) => vivo && mesclar(novas))
+        .catch(() => {});
+    };
+    const t = setInterval(buscarNovas, 4000);
+    const aoVoltar = () => !document.hidden && buscarNovas();
+    document.addEventListener("visibilitychange", aoVoltar);
+
     return () => {
       vivo = false;
       clearInterval(t);
+      document.removeEventListener("visibilitychange", aoVoltar);
     };
   }, [grupoId, podeVer]);
 
@@ -151,7 +178,7 @@ function Chat({ grupoId, podeVer }: { grupoId: number; podeVer: boolean }) {
     setTexto("");
     try {
       const msg = await api.post<Mensagem>(`/api/grupos/${grupoId}/mensagens/`, { conteudo });
-      setMensagens((m) => [...m, msg]);
+      mesclar([msg]);
     } catch {
       toast.erro("Não foi possível enviar.");
       setTexto(conteudo);
