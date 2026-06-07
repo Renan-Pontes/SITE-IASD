@@ -69,5 +69,13 @@ os fluxos principais jogáveis. Lista do que ainda dá pra evoluir.
 - ✅ **Chat com polling incremental** (mais leve e ágil; pausa com a aba oculta).
 - ✅ **Retenção de auditoria** (comando de purga, padrão 90 dias).
 - ✅ **Modo claro / escuro** (respeita o sistema, persiste, tema verde preservado).
+- ✅ **Confirmar senha + força + mostrar/ocultar** no cadastro e na troca de senha.
+- ✅ **Foto no evento**: upload no formulário (preview + validação <5 MB), banner
+  no detalhe e thumbnail no card; validação Pillow no backend.
+- ✅ **Feedback de pendências** ponta a ponta: card "Suas solicitações pendentes"
+  (Dashboard + Perfil), banners de pendente/rejeitado nas telas de grupo e igreja,
+  notificação ao usuário na rejeição (antes silenciosa) com motivo opcional.
+- ✅ Confirmado: é **webapp puro** (sem Capacitor/React Native) — usa APIs do
+  browser (Geolocation, ServiceWorker), mobile-first, PWA.
 - ✅ **Deploy preparado**: Vercel (frontend) + PythonAnywhere (backend), WhiteNoise,
   `.env` via dotenv, healthcheck `/api/health/`, `vercel.json` (SPA). Veja `docs/DEPLOY.md`.
