@@ -1,10 +1,11 @@
 import { useEffect, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
-import { ArrowLeft, Plus, Check, X, Save, Camera } from "lucide-react";
+import { ArrowLeft, Plus, Check, X, Save, Camera, Pencil, Archive } from "lucide-react";
 import { UploadFoto } from "../components/UploadFoto";
 import { api, ApiError } from "../api/client";
 import { useAuth } from "../auth/AuthContext";
 import { useToast } from "../ui/Toast";
+import { Modal } from "../ui/Modal";
 import type { Grupo, Igreja, Membro, Sala } from "../lib/types";
 import { Botao, Card, Carregando, Avatar, Badge, Campo, Vazio } from "../ui/components";
 import { rotulo } from "../lib/format";
@@ -150,6 +151,7 @@ function Grupos({ igrejaId }: { igrejaId: number }) {
   const [grupos, setGrupos] = useState<Grupo[]>([]);
   const [form, setForm] = useState({ nome: "", tipo: "ministerio", descricao: "" });
   const [salvando, setSalvando] = useState(false);
+  const [editar, setEditar] = useState<Grupo | null>(null);
 
   const carregar = () => api.get<Grupo[]>(`/api/igrejas/${igrejaId}/grupos/`).then(setGrupos);
   useEffect(() => {
@@ -196,12 +198,103 @@ function Grupos({ igrejaId }: { igrejaId: number }) {
       <div className="space-y-2">
         {grupos.map((g) => (
           <Card key={g.id} className="flex items-center justify-between p-3">
-            <span className="font-medium text-slate-700">{g.nome}</span>
-            <Badge cor="cinza">{rotulo.tipoGrupo(g.tipo)}</Badge>
+            <span className="font-medium text-slate-700 dark:text-slate-200">{g.nome}</span>
+            <div className="flex items-center gap-2">
+              <Badge cor="cinza">{rotulo.tipoGrupo(g.tipo)}</Badge>
+              <button onClick={() => setEditar(g)} aria-label="Editar grupo" className="text-slate-400 hover:text-marca-600">
+                <Pencil size={18} />
+              </button>
+            </div>
           </Card>
         ))}
       </div>
+
+      <EditarGrupo
+        grupo={editar}
+        aoFechar={() => setEditar(null)}
+        aoSalvar={() => {
+          setEditar(null);
+          carregar();
+        }}
+      />
     </div>
+  );
+}
+
+function EditarGrupo({
+  grupo, aoFechar, aoSalvar,
+}: {
+  grupo: Grupo | null; aoFechar: () => void; aoSalvar: () => void;
+}) {
+  const toast = useToast();
+  const [form, setForm] = useState({ nome: "", tipo: "ministerio", descricao: "" });
+  const [salvando, setSalvando] = useState(false);
+
+  useEffect(() => {
+    if (grupo) setForm({ nome: grupo.nome, tipo: grupo.tipo, descricao: grupo.descricao });
+  }, [grupo]);
+
+  if (!grupo) return null;
+
+  const salvar = async () => {
+    setSalvando(true);
+    try {
+      await api.patch(`/api/grupos/${grupo.id}/`, form);
+      toast.sucesso("Grupo atualizado!");
+      aoSalvar();
+    } catch (e) {
+      toast.erro(e instanceof ApiError ? e.message : "Erro ao salvar.");
+    } finally {
+      setSalvando(false);
+    }
+  };
+
+  const arquivar = async () => {
+    try {
+      await api.patch(`/api/grupos/${grupo.id}/`, { ativo: false });
+      toast.sucesso("Grupo arquivado.");
+      aoSalvar();
+    } catch {
+      toast.erro("Erro ao arquivar.");
+    }
+  };
+
+  return (
+    <Modal
+      aberto={!!grupo}
+      aoFechar={aoFechar}
+      titulo="Editar grupo"
+      rodape={
+        <>
+          <Botao variante="ghost" onClick={arquivar}>
+            <Archive size={18} /> Arquivar
+          </Botao>
+          <Botao full onClick={salvar} carregando={salvando}>
+            <Save size={18} /> Salvar
+          </Botao>
+        </>
+      }
+    >
+      <div className="space-y-3">
+        <Campo label="Nome">
+          <input className="input" value={form.nome} onChange={(e) => setForm({ ...form, nome: e.target.value })} />
+        </Campo>
+        <Campo label="Tipo">
+          <select className="input" value={form.tipo} onChange={(e) => setForm({ ...form, tipo: e.target.value })}>
+            <option value="ministerio">Ministério</option>
+            <option value="classe">Classe / Escola Sabatina</option>
+            <option value="desbravadores">Desbravadores</option>
+            <option value="aventureiros">Aventureiros</option>
+            <option value="musica">Música / Louvor</option>
+            <option value="jovens">Jovens</option>
+            <option value="outro">Outro</option>
+          </select>
+        </Campo>
+        <Campo label="Descrição">
+          <textarea className="input min-h-[70px]" value={form.descricao} onChange={(e) => setForm({ ...form, descricao: e.target.value })} />
+        </Campo>
+      </div>
+    </Modal>
   );
 }
 
@@ -210,6 +303,7 @@ function Salas({ igrejaId }: { igrejaId: number }) {
   const [salas, setSalas] = useState<Sala[]>([]);
   const [form, setForm] = useState({ nome: "", capacidade: "", equipamentos: "" });
   const [salvando, setSalvando] = useState(false);
+  const [editar, setEditar] = useState<Sala | null>(null);
 
   const carregar = () => api.get<Sala[]>(`/api/igrejas/${igrejaId}/salas/`).then(setSalas);
   useEffect(() => {
@@ -267,12 +361,106 @@ function Salas({ igrejaId }: { igrejaId: number }) {
       <div className="space-y-2">
         {salas.map((s) => (
           <Card key={s.id} className="flex items-center justify-between p-3">
-            <span className="font-medium text-slate-700">{s.nome}</span>
-            {s.capacidade && <Badge cor="cinza">{s.capacidade} lugares</Badge>}
+            <span className="font-medium text-slate-700 dark:text-slate-200">{s.nome}</span>
+            <div className="flex items-center gap-2">
+              {s.capacidade && <Badge cor="cinza">{s.capacidade} lugares</Badge>}
+              <button onClick={() => setEditar(s)} aria-label="Editar sala" className="text-slate-400 hover:text-marca-600">
+                <Pencil size={18} />
+              </button>
+            </div>
           </Card>
         ))}
       </div>
+
+      <EditarSala
+        sala={editar}
+        aoFechar={() => setEditar(null)}
+        aoSalvar={() => {
+          setEditar(null);
+          carregar();
+        }}
+      />
     </div>
+  );
+}
+
+function EditarSala({
+  sala, aoFechar, aoSalvar,
+}: {
+  sala: Sala | null; aoFechar: () => void; aoSalvar: () => void;
+}) {
+  const toast = useToast();
+  const [form, setForm] = useState({ nome: "", capacidade: "", equipamentos: "" });
+  const [salvando, setSalvando] = useState(false);
+
+  useEffect(() => {
+    if (sala)
+      setForm({
+        nome: sala.nome,
+        capacidade: sala.capacidade ? String(sala.capacidade) : "",
+        equipamentos: sala.equipamentos,
+      });
+  }, [sala]);
+
+  if (!sala) return null;
+
+  const salvar = async () => {
+    setSalvando(true);
+    try {
+      await api.patch(`/api/salas/${sala.id}/`, {
+        nome: form.nome,
+        capacidade: form.capacidade ? Number(form.capacidade) : null,
+        equipamentos: form.equipamentos,
+      });
+      toast.sucesso("Sala atualizada!");
+      aoSalvar();
+    } catch (e) {
+      toast.erro(e instanceof ApiError ? e.message : "Erro ao salvar.");
+    } finally {
+      setSalvando(false);
+    }
+  };
+
+  const arquivar = async () => {
+    try {
+      await api.patch(`/api/salas/${sala.id}/`, { ativo: false });
+      toast.sucesso("Sala arquivada.");
+      aoSalvar();
+    } catch {
+      toast.erro("Erro ao arquivar.");
+    }
+  };
+
+  return (
+    <Modal
+      aberto={!!sala}
+      aoFechar={aoFechar}
+      titulo="Editar sala"
+      rodape={
+        <>
+          <Botao variante="ghost" onClick={arquivar}>
+            <Archive size={18} /> Arquivar
+          </Botao>
+          <Botao full onClick={salvar} carregando={salvando}>
+            <Save size={18} /> Salvar
+          </Botao>
+        </>
+      }
+    >
+      <div className="space-y-3">
+        <Campo label="Nome">
+          <input className="input" value={form.nome} onChange={(e) => setForm({ ...form, nome: e.target.value })} />
+        </Campo>
+        <div className="grid grid-cols-2 gap-3">
+          <Campo label="Capacidade">
+            <input type="number" className="input" value={form.capacidade} onChange={(e) => setForm({ ...form, capacidade: e.target.value })} />
+          </Campo>
+          <Campo label="Equipamentos">
+            <input className="input" value={form.equipamentos} onChange={(e) => setForm({ ...form, equipamentos: e.target.value })} />
+          </Campo>
+        </div>
+      </div>
+    </Modal>
   );
 }
 
