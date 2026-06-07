@@ -1,0 +1,232 @@
+// Tipos espelhando a API DRF.
+
+export type StatusVinculo = "pendente" | "ativo" | "rejeitado" | "inativo";
+export type PapelIgreja = "visitante" | "membro" | "anciao" | "pastor" | "admin_igreja";
+export type CargoGrupo = "membro" | "secretario" | "lider" | "diretor";
+export type StatusEvento =
+  | "rascunho"
+  | "pendente"
+  | "aprovado"
+  | "rejeitado"
+  | "cancelado";
+export type Visibilidade = "publico" | "privado";
+export type Recorrencia = "nenhuma" | "diaria" | "semanal" | "mensal";
+export type StatusInscricao = "confirmado" | "talvez" | "cancelado";
+export type OpcaoVoto = "sim" | "nao" | "abstencao";
+
+export interface UsuarioMini {
+  id: number;
+  nome: string;
+  foto: string | null;
+}
+
+export interface Profile {
+  id: number;
+  username: string;
+  email: string;
+  nome: string;
+  first_name: string;
+  last_name: string;
+  telefone: string;
+  foto: string | null;
+  bio: string;
+  igreja_principal: number | null;
+  igreja_principal_nome: string | null;
+  latitude: number | null;
+  longitude: number | null;
+  is_super_admin: boolean;
+  fonte_grande: boolean;
+  notificacoes_email: boolean;
+}
+
+export interface VinculoIgreja {
+  igreja: number;
+  igreja_nome: string;
+  papel: PapelIgreja;
+  status: StatusVinculo;
+  eh_lideranca: boolean;
+}
+
+export interface VinculoGrupo {
+  grupo: number;
+  grupo_nome: string;
+  igreja: number;
+  cargo: CargoGrupo;
+  status: StatusVinculo;
+  eh_lideranca: boolean;
+}
+
+export interface Me {
+  profile: Profile;
+  vinculos_igreja: VinculoIgreja[];
+  vinculos_grupo: VinculoGrupo[];
+  is_super_admin: boolean;
+}
+
+export interface Igreja {
+  id: number;
+  nome: string;
+  slug: string;
+  descricao: string;
+  endereco: string;
+  cidade: string;
+  estado: string;
+  cep: string;
+  latitude: number | null;
+  longitude: number | null;
+  telefone: string;
+  email: string;
+  foto: string | null;
+  ativo: boolean;
+  total_membros: number;
+  distancia_km: number | null;
+  meu_status: StatusVinculo | null;
+  meu_papel: PapelIgreja | null;
+  criado_em: string;
+}
+
+export interface Membro {
+  id: number;
+  usuario: number;
+  usuario_detalhe: UsuarioMini;
+  igreja: number;
+  igreja_nome: string;
+  papel: PapelIgreja;
+  status: StatusVinculo;
+  data_entrada: string;
+}
+
+export interface Grupo {
+  id: number;
+  nome: string;
+  slug: string;
+  descricao: string;
+  tipo: string;
+  igreja: number;
+  igreja_nome: string;
+  foto: string | null;
+  ativo: boolean;
+  total_membros: number;
+  meu_status: StatusVinculo | null;
+  meu_cargo: CargoGrupo | null;
+  criado_em: string;
+}
+
+export interface GrupoMembro {
+  id: number;
+  usuario: number;
+  usuario_detalhe: UsuarioMini;
+  grupo: number;
+  grupo_nome: string;
+  cargo: CargoGrupo;
+  status: StatusVinculo;
+  data_entrada: string;
+}
+
+export interface Sala {
+  id: number;
+  nome: string;
+  igreja: number;
+  igreja_nome: string;
+  capacidade: number | null;
+  equipamentos: string;
+  ativo: boolean;
+}
+
+export interface Evento {
+  id: number;
+  titulo: string;
+  descricao: string;
+  igreja: number;
+  igreja_nome: string;
+  grupo: number | null;
+  grupo_nome: string | null;
+  sala: number | null;
+  sala_nome: string | null;
+  inicio: string;
+  fim: string;
+  visibilidade: Visibilidade;
+  status: StatusEvento;
+  recorrencia: Recorrencia;
+  recorrencia_ate: string | null;
+  foto: string | null;
+  criado_por: number | null;
+  criado_por_detalhe: UsuarioMini | null;
+  aprovado_por: number | null;
+  motivo_rejeicao: string;
+  total_confirmados: number;
+  meu_rsvp: StatusInscricao | null;
+  posso_aprovar: boolean;
+  criado_em: string;
+}
+
+export interface Inscricao {
+  id: number;
+  usuario: number;
+  usuario_detalhe: UsuarioMini;
+  evento: number;
+  evento_titulo: string;
+  status: StatusInscricao;
+  criado_em: string;
+}
+
+export interface Pauta {
+  id: number;
+  titulo: string;
+  descricao: string;
+  igreja: number;
+  igreja_nome: string;
+  criada_por: number | null;
+  criada_por_detalhe: UsuarioMini | null;
+  anonima: boolean;
+  prazo_votacao: string | null;
+  status: "aberta" | "encerrada";
+  resultado: { sim: number; nao: number; abstencao: number };
+  meu_voto: OpcaoVoto | null;
+  total_votos: number;
+  expirada: boolean;
+  criado_em: string;
+}
+
+export interface Voto {
+  id: number;
+  pauta: number;
+  opcao: OpcaoVoto;
+  comentario: string;
+  usuario_detalhe: UsuarioMini | null;
+  criado_em: string;
+}
+
+export interface Mensagem {
+  id: number;
+  grupo: number;
+  autor: number;
+  autor_detalhe: UsuarioMini;
+  conteudo: string;
+  anexo: string | null;
+  criado_em: string;
+}
+
+export interface Notificacao {
+  id: number;
+  tipo: string;
+  titulo: string;
+  mensagem: string;
+  link: string;
+  lida: boolean;
+  criado_em: string;
+}
+
+export interface Dashboard {
+  eventos_minha_igreja: Evento[];
+  eventos_proximos: Evento[];
+  pendencias: { eventos: number; membros: number; pautas_abertas: number };
+  sou_lideranca: boolean;
+}
+
+export interface Paginated<T> {
+  count: number;
+  next: string | null;
+  previous: string | null;
+  results: T[];
+}
