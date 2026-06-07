@@ -73,6 +73,55 @@ def health(request):
     return Response({"status": "ok"})
 
 
+@api_view(["GET"])
+@permission_classes([AllowAny])
+def search(request):
+    """Busca global agrupada (igrejas, grupos, eventos, pessoas)."""
+    q = (request.query_params.get("q") or "").strip()
+    if len(q) < 2:
+        return Response({"igrejas": [], "grupos": [], "eventos": [], "pessoas": []})
+
+    ctx = {"request": request}
+
+    igrejas = Igreja.objects.filter(ativo=True).filter(
+        Q(nome__icontains=q) | Q(cidade__icontains=q)
+    )[:6]
+    grupos = Grupo.objects.filter(ativo=True, nome__icontains=q).select_related("igreja")[:6]
+    eventos = (
+        Evento.objects.filter(
+            status=StatusEvento.APROVADO,
+            visibilidade=VisibilidadeEvento.PUBLICO,
+            fim__gte=timezone.now(),
+            titulo__icontains=q,
+        )
+        .select_related("igreja", "grupo")
+        .order_by("inicio")[:6]
+    )
+
+    # Pessoas só para usuários autenticados (privacidade).
+    pessoas = []
+    if request.user.is_authenticated:
+        usuarios = (
+            User.objects.filter(is_active=True)
+            .filter(
+                Q(first_name__icontains=q)
+                | Q(last_name__icontains=q)
+                | Q(username__icontains=q)
+            )
+            .select_related("profile")[:6]
+        )
+        pessoas = UsuarioMiniSerializer(usuarios, many=True, context=ctx).data
+
+    return Response(
+        {
+            "igrejas": IgrejaSerializer(igrejas, many=True, context=ctx).data,
+            "grupos": GrupoSerializer(grupos, many=True, context=ctx).data,
+            "eventos": EventoSerializer(eventos, many=True, context=ctx).data,
+            "pessoas": pessoas,
+        }
+    )
+
+
 def _salvar_foto(instance, request):
     """Salva o arquivo enviado no campo `foto` da instância. Retorna False se vazio."""
     arquivo = request.FILES.get("foto")

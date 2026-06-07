@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { Link, NavLink, Outlet, useLocation } from "react-router-dom";
-import { Home, CalendarDays, Church, Users, Bell, User } from "lucide-react";
+import { Home, CalendarDays, Church, Users, Bell, User, Search } from "lucide-react";
 import { useAuth } from "../auth/AuthContext";
 import { api } from "../api/client";
 import { Avatar } from "../ui/components";
@@ -42,25 +42,38 @@ function TopBar() {
     <header className="sticky top-0 z-30 border-b border-slate-100 bg-white/90 backdrop-blur">
       <div className="mx-auto flex max-w-3xl items-center justify-between px-4 py-3">
         <Logo />
-        {logado && (
-          <div className="flex items-center gap-1">
-            <Link
-              to="/notificacoes"
-              className="relative rounded-full p-2 hover:bg-slate-100"
-              aria-label="Notificações"
-            >
-              <Bell size={24} className="text-slate-600" />
-              {naoLidas > 0 && (
-                <span className="absolute -right-0.5 -top-0.5 flex h-5 min-w-5 items-center justify-center rounded-full bg-red-500 px-1 text-[11px] font-bold text-white">
-                  {naoLidas > 9 ? "9+" : naoLidas}
-                </span>
-              )}
+        <div className="flex items-center gap-1">
+          <Link
+            to="/buscar"
+            className="rounded-full p-2 hover:bg-slate-100 dark:hover:bg-slate-800"
+            aria-label="Buscar"
+          >
+            <Search size={24} className="text-slate-600 dark:text-slate-300" />
+          </Link>
+          {logado ? (
+            <>
+              <Link
+                to="/notificacoes"
+                className="relative rounded-full p-2 hover:bg-slate-100 dark:hover:bg-slate-800"
+                aria-label="Notificações"
+              >
+                <Bell size={24} className="text-slate-600 dark:text-slate-300" />
+                {naoLidas > 0 && (
+                  <span className="absolute -right-0.5 -top-0.5 flex h-5 min-w-5 items-center justify-center rounded-full bg-red-500 px-1 text-[11px] font-bold text-white">
+                    {naoLidas > 9 ? "9+" : naoLidas}
+                  </span>
+                )}
+              </Link>
+              <Link to="/perfil" aria-label="Meu perfil">
+                <Avatar nome={me?.profile.nome || "?"} foto={me?.profile.foto} size={36} />
+              </Link>
+            </>
+          ) : (
+            <Link to="/entrar" className="btn-primary !px-4 !py-2 text-sm">
+              Entrar
             </Link>
-            <Link to="/perfil" aria-label="Meu perfil">
-              <Avatar nome={me?.profile.nome || "?"} foto={me?.profile.foto} size={36} />
-            </Link>
-          </div>
-        )}
+          )}
+        </div>
       </div>
     </header>
   );

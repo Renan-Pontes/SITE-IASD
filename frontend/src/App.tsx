@@ -10,6 +10,7 @@ import Dashboard from "./pages/Dashboard";
 import Landing from "./pages/Landing";
 import Agenda from "./pages/Agenda";
 import Igrejas from "./pages/Igrejas";
+import Buscar from "./pages/Buscar";
 import IgrejaDetalhe from "./pages/IgrejaDetalhe";
 import Grupos from "./pages/Grupos";
 import GrupoDetalhe from "./pages/GrupoDetalhe";
@@ -52,6 +53,7 @@ export default function App() {
         {/* Públicas (visitante pode ver) */}
         <Route path="/agenda" element={<Agenda />} />
         <Route path="/igrejas" element={<Igrejas />} />
+        <Route path="/buscar" element={<Buscar />} />
         <Route path="/igreja/:id" element={<IgrejaDetalhe />} />
         <Route path="/evento/:id" element={<EventoDetalhe />} />
         <Route

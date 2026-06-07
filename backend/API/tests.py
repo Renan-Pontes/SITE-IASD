@@ -369,6 +369,42 @@ class IcalTests(TestCase):
         self.assertEqual(resp.status_code, 404)
 
 
+class SearchTests(TestCase):
+    def setUp(self):
+        self.igreja = Igreja.objects.create(nome="IASD Esperança", cidade="Santos", estado="SP")
+        Grupo.objects.create(nome="Ministério Jovem", igreja=self.igreja)
+        agora = timezone.now()
+        Evento.objects.create(
+            titulo="Vigília de Oração", igreja=self.igreja, inicio=agora,
+            fim=agora + timedelta(hours=2), status=StatusEvento.APROVADO,
+            visibilidade=VisibilidadeEvento.PUBLICO,
+        )
+
+    def test_busca_agrupada(self):
+        resp = self.client.get("/api/search/?q=esper")
+        self.assertEqual(resp.status_code, 200)
+        self.assertTrue(any(i["nome"] == "IASD Esperança" for i in resp.data["igrejas"]))
+
+        resp = self.client.get("/api/search/?q=vigíl")
+        self.assertTrue(any(e["titulo"] == "Vigília de Oração" for e in resp.data["eventos"]))
+
+    def test_busca_curta_retorna_vazio(self):
+        resp = self.client.get("/api/search/?q=a")
+        self.assertEqual(resp.data, {"igrejas": [], "grupos": [], "eventos": [], "pessoas": []})
+
+    def test_pessoas_so_autenticado(self):
+        cria_user("joao@iasd.app", "Joao Silva")
+        # anônimo não recebe pessoas
+        resp = self.client.get("/api/search/?q=joao")
+        self.assertEqual(resp.data["pessoas"], [])
+        # autenticado recebe
+        c = APIClient()
+        cria_user("logado@iasd.app", "Logado User")
+        autentica(c, "logado@iasd.app")
+        resp = c.get("/api/search/?q=joao")
+        self.assertTrue(any("Joao" in p["nome"] for p in resp.data["pessoas"]))
+
+
 class DistanciaIgrejaTests(TestCase):
     def test_ordena_por_proximidade(self):
         Igreja.objects.create(nome="Perto", latitude=-23.55, longitude=-46.63, cidade="SP", estado="SP")
