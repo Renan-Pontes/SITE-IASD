@@ -107,6 +107,25 @@ class MembroWorkflowTests(TestCase):
         membro.refresh_from_db()
         self.assertEqual(membro.status, StatusVinculo.ATIVO)
 
+    def test_rejeitar_com_motivo_notifica_usuario(self):
+        from API.models import Notificacao
+
+        membro = Membro.objects.create(
+            usuario=self.user, igreja=self.igreja, status=StatusVinculo.PENDENTE
+        )
+        lider = APIClient()
+        autentica(lider, "anciao@iasd.app")
+        resp = lider.post(
+            f"/api/membros/{membro.id}/rejeitar/", {"motivo": "Sem vínculo"}, format="json"
+        )
+        self.assertEqual(resp.status_code, 200, resp.content)
+        membro.refresh_from_db()
+        self.assertEqual(membro.status, StatusVinculo.REJEITADO)
+        self.assertEqual(membro.motivo_rejeicao, "Sem vínculo")
+        self.assertTrue(
+            Notificacao.objects.filter(usuario=self.user, tipo="membro_rejeitado").exists()
+        )
+
     def test_usuario_comum_nao_aprova_membro(self):
         membro = Membro.objects.create(
             usuario=self.user, igreja=self.igreja, status=StatusVinculo.PENDENTE

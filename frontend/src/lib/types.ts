@@ -45,6 +45,8 @@ export interface VinculoIgreja {
   papel: PapelIgreja;
   status: StatusVinculo;
   eh_lideranca: boolean;
+  motivo_rejeicao: string;
+  data_entrada: string;
 }
 
 export interface VinculoGrupo {
@@ -54,6 +56,8 @@ export interface VinculoGrupo {
   cargo: CargoGrupo;
   status: StatusVinculo;
   eh_lideranca: boolean;
+  motivo_rejeicao: string;
+  data_entrada: string;
 }
 
 export interface Me {
@@ -93,6 +97,7 @@ export interface Membro {
   igreja_nome: string;
   papel: PapelIgreja;
   status: StatusVinculo;
+  motivo_rejeicao: string;
   data_entrada: string;
 }
 
@@ -120,6 +125,7 @@ export interface GrupoMembro {
   grupo_nome: string;
   cargo: CargoGrupo;
   status: StatusVinculo;
+  motivo_rejeicao: string;
   data_entrada: string;
 }
 

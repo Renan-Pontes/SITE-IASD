@@ -149,6 +149,11 @@ export default function EventoDetalhe() {
           {evento.descricao && (
             <p className="whitespace-pre-wrap pt-2 text-slate-600">{evento.descricao}</p>
           )}
+          {evento.status === "pendente" && (
+            <p className="rounded-lg bg-amber-50 p-3 text-sm text-amber-800 dark:bg-amber-900/20 dark:text-amber-200">
+              ⏳ Este evento está aguardando a aprovação de um ancião da igreja.
+            </p>
+          )}
           {evento.status === "rejeitado" && evento.motivo_rejeicao && (
             <p className="rounded-lg bg-red-50 p-3 text-sm text-red-700">
               Motivo da não aprovação: {evento.motivo_rejeicao}

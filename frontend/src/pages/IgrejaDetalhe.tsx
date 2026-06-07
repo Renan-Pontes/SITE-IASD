@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
-import { MapPin, Phone, Settings, ShieldCheck, LogIn, Clock3 } from "lucide-react";
+import { MapPin, Phone, Settings, ShieldCheck, LogIn } from "lucide-react";
 import { api } from "../api/client";
 import { useAuth } from "../auth/AuthContext";
 import { useToast } from "../ui/Toast";
@@ -15,7 +15,7 @@ export default function IgrejaDetalhe() {
   const { id } = useParams();
   const nav = useNavigate();
   const toast = useToast();
-  const { logado, lideroIgreja, recarregar } = useAuth();
+  const { logado, lideroIgreja, recarregar, me } = useAuth();
   const [igreja, setIgreja] = useState<Igreja | null>(null);
   const [aba, setAba] = useState<Aba>("agenda");
   const [eventos, setEventos] = useState<Evento[]>([]);
@@ -72,6 +72,7 @@ export default function IgrejaDetalhe() {
 
   if (!igreja) return <Carregando />;
   const sou = lideroIgreja(igreja.id);
+  const motivoRejIgreja = me?.vinculos_igreja.find((v) => v.igreja === igreja.id)?.motivo_rejeicao;
 
   return (
     <div className="space-y-5">
@@ -106,18 +107,32 @@ export default function IgrejaDetalhe() {
             )}
           </div>
         </div>
-        <div className="p-4">
-          {igreja.descricao && <p className="mb-3 text-slate-600">{igreja.descricao}</p>}
+        <div className="space-y-3 p-4">
+          {igreja.descricao && <p className="text-slate-600 dark:text-slate-300">{igreja.descricao}</p>}
+
+          {igreja.meu_status === "pendente" && (
+            <div className="rounded-xl bg-amber-50 p-3 text-sm text-amber-900 dark:bg-amber-900/20 dark:text-amber-200">
+              ⏳ <b>Solicitação enviada.</b> Aguarde a aprovação da liderança da igreja —
+              você será avisado.
+            </div>
+          )}
+          {igreja.meu_status === "rejeitado" && (
+            <div className="rounded-xl bg-red-50 p-3 text-sm text-red-700">
+              <b>Solicitação não aprovada.</b>
+              {motivoRejIgreja ? ` Motivo: ${motivoRejIgreja}` : ""}
+              <Botao variante="secondary" className="mt-2" onClick={entrar} carregando={entrando}>
+                <LogIn size={18} /> Pedir novamente
+              </Botao>
+            </div>
+          )}
+
           <div className="flex flex-wrap items-center gap-3">
-            {igreja.meu_status === "ativo" ? (
+            {igreja.meu_status === "ativo" && (
               <Badge cor="marca">
                 <ShieldCheck size={14} /> {rotulo.papel(igreja.meu_papel || "membro")}
               </Badge>
-            ) : igreja.meu_status === "pendente" ? (
-              <Badge cor="ouro">
-                <Clock3 size={14} /> Aguardando aprovação
-              </Badge>
-            ) : (
+            )}
+            {(!igreja.meu_status || igreja.meu_status === "inativo") && (
               <Botao onClick={entrar} carregando={entrando}>
                 <LogIn size={18} /> Entrar nesta igreja
               </Botao>

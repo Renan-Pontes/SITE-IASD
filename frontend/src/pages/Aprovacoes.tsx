@@ -5,6 +5,7 @@ import { api } from "../api/client";
 import { useToast } from "../ui/Toast";
 import type { Evento, Membro, Paginated } from "../lib/types";
 import { Card, Carregando, Avatar, Vazio, Badge } from "../ui/components";
+import { RejeitarModal } from "../components/RejeitarModal";
 import { formatData, formatHora, formatDiaSemana } from "../lib/format";
 
 export default function Aprovacoes() {
@@ -12,6 +13,7 @@ export default function Aprovacoes() {
   const [eventos, setEventos] = useState<Evento[]>([]);
   const [membros, setMembros] = useState<Membro[]>([]);
   const [carregando, setCarregando] = useState(true);
+  const [rejeitar, setRejeitar] = useState<{ tipo: "membro" | "evento"; id: number } | null>(null);
 
   const carregar = () => {
     setCarregando(true);
@@ -27,21 +29,36 @@ export default function Aprovacoes() {
   };
   useEffect(carregar, []);
 
-  const evento = async (id: number, tipo: "aprovar" | "rejeitar") => {
+  const aprovarEvento = async (id: number) => {
     try {
-      await api.post(`/api/eventos/${id}/${tipo}/`);
-      toast.sucesso(tipo === "aprovar" ? "Evento aprovado!" : "Evento rejeitado.");
+      await api.post(`/api/eventos/${id}/aprovar/`);
+      toast.sucesso("Evento aprovado!");
       setEventos((e) => e.filter((x) => x.id !== id));
     } catch {
       toast.erro("Erro ao processar.");
     }
   };
 
-  const membro = async (id: number, tipo: "aprovar" | "rejeitar") => {
+  const aprovarMembro = async (id: number) => {
     try {
-      await api.post(`/api/membros/${id}/${tipo}/`);
-      toast.sucesso(tipo === "aprovar" ? "Membro aprovado!" : "Pedido recusado.");
+      await api.post(`/api/membros/${id}/aprovar/`);
+      toast.sucesso("Membro aprovado!");
       setMembros((m) => m.filter((x) => x.id !== id));
+    } catch {
+      toast.erro("Erro ao processar.");
+    }
+  };
+
+  const confirmarRejeicao = async (motivo: string) => {
+    if (!rejeitar) return;
+    const { tipo, id } = rejeitar;
+    setRejeitar(null);
+    try {
+      const url = tipo === "evento" ? `/api/eventos/${id}/rejeitar/` : `/api/membros/${id}/rejeitar/`;
+      await api.post(url, { motivo });
+      toast.info(tipo === "evento" ? "Evento rejeitado." : "Pedido recusado.");
+      if (tipo === "evento") setEventos((e) => e.filter((x) => x.id !== id));
+      else setMembros((m) => m.filter((x) => x.id !== id));
     } catch {
       toast.erro("Erro ao processar.");
     }
@@ -76,14 +93,14 @@ export default function Aprovacoes() {
                   <p className="text-sm text-slate-500">{m.igreja_nome}</p>
                 </div>
                 <button
-                  onClick={() => membro(m.id, "aprovar")}
+                  onClick={() => aprovarMembro(m.id)}
                   className="rounded-full bg-marca-600 p-2.5 text-white"
                   aria-label="Aprovar"
                 >
                   <Check size={20} />
                 </button>
                 <button
-                  onClick={() => membro(m.id, "rejeitar")}
+                  onClick={() => setRejeitar({ tipo: "membro", id: m.id })}
                   className="rounded-full bg-red-100 p-2.5 text-red-600"
                   aria-label="Recusar"
                 >
@@ -117,13 +134,13 @@ export default function Aprovacoes() {
                 <p className="text-sm text-slate-500">{ev.igreja_nome}</p>
                 <div className="mt-3 flex gap-2">
                   <button
-                    onClick={() => evento(ev.id, "aprovar")}
+                    onClick={() => aprovarEvento(ev.id)}
                     className="btn-primary flex-1 !py-2.5"
                   >
                     <Check size={18} /> Aprovar
                   </button>
                   <button
-                    onClick={() => evento(ev.id, "rejeitar")}
+                    onClick={() => setRejeitar({ tipo: "evento", id: ev.id })}
                     className="btn-perigo flex-1 !py-2.5"
                   >
                     <X size={18} /> Rejeitar
@@ -134,6 +151,13 @@ export default function Aprovacoes() {
           </div>
         </section>
       )}
+
+      <RejeitarModal
+        aberto={!!rejeitar}
+        aoFechar={() => setRejeitar(null)}
+        aoConfirmar={confirmarRejeicao}
+        titulo={rejeitar?.tipo === "evento" ? "Rejeitar evento" : "Recusar pedido"}
+      />
     </div>
   );
 }

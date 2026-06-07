@@ -45,7 +45,7 @@ export default function Grupos() {
           </p>
         </div>
         {g.meu_status === "ativo" && <Badge cor="marca">{rotulo.cargo(g.meu_cargo || "membro")}</Badge>}
-        {g.meu_status === "pendente" && <Badge cor="ouro">Pendente</Badge>}
+        {g.meu_status === "pendente" && <Badge cor="ouro">⏳ Aguardando</Badge>}
       </Card>
     </Link>
   );

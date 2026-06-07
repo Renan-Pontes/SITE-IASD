@@ -8,6 +8,7 @@ import { useToast } from "../ui/Toast";
 import type { Evento, Grupo, GrupoMembro, Mensagem, Paginated } from "../lib/types";
 import { Botao, Card, Carregando, Badge, Avatar, Vazio, SkeletonLista } from "../ui/components";
 import { EventoCard } from "../components/EventoCard";
+import { RejeitarModal } from "../components/RejeitarModal";
 import { rotulo, formatHora, formatDataCurta } from "../lib/format";
 
 type Aba = "chat" | "eventos" | "membros";
@@ -44,6 +45,8 @@ export default function GrupoDetalhe() {
 
   if (!grupo) return <Carregando />;
 
+  const motivoRejGrupo = me?.vinculos_grupo.find((v) => v.grupo === grupo.id)?.motivo_rejeicao;
+
   return (
     <div className="space-y-5">
       <button onClick={() => nav(-1)} className="flex items-center gap-1 text-slate-500">
@@ -61,14 +64,30 @@ export default function GrupoDetalhe() {
             {grupo.igreja_nome}
           </Link>
         </div>
-        <div className="p-4">
-          {grupo.descricao && <p className="mb-3 text-slate-600">{grupo.descricao}</p>}
+        <div className="space-y-3 p-4">
+          {grupo.descricao && <p className="text-slate-600 dark:text-slate-300">{grupo.descricao}</p>}
+
+          {grupo.meu_status === "pendente" && (
+            <div className="rounded-xl bg-amber-50 p-3 text-sm text-amber-900 dark:bg-amber-900/20 dark:text-amber-200">
+              ⏳ <b>Solicitação enviada.</b> Aguarde a aprovação do líder do grupo —
+              você será avisado.
+            </div>
+          )}
+          {grupo.meu_status === "rejeitado" && (
+            <div className="rounded-xl bg-red-50 p-3 text-sm text-red-700">
+              <b>Solicitação não aprovada.</b>
+              {motivoRejGrupo ? ` Motivo: ${motivoRejGrupo}` : ""}
+              <Botao variante="secondary" className="mt-2" onClick={entrar}>
+                <LogIn size={18} /> Pedir novamente
+              </Botao>
+            </div>
+          )}
+
           <div className="flex flex-wrap items-center gap-3">
-            {grupo.meu_status === "ativo" ? (
+            {grupo.meu_status === "ativo" && (
               <Badge cor="marca">{rotulo.cargo(grupo.meu_cargo || "membro")}</Badge>
-            ) : grupo.meu_status === "pendente" ? (
-              <Badge cor="ouro">Aguardando aprovação</Badge>
-            ) : (
+            )}
+            {(!grupo.meu_status || grupo.meu_status === "inativo") && (
               <Botao onClick={entrar}>
                 <LogIn size={18} /> Pedir para entrar
               </Botao>
@@ -283,6 +302,7 @@ function Membros({
   const toast = useToast();
   const [membros, setMembros] = useState<GrupoMembro[]>([]);
   const [carregando, setCarregando] = useState(true);
+  const [rejeitarId, setRejeitarId] = useState<number | null>(null);
 
   const carregar = () => {
     setCarregando(true);
@@ -294,10 +314,24 @@ function Membros({
   };
   useEffect(carregar, [grupoId, souLider]);
 
-  const acao = async (gmId: number, tipo: "aprovar" | "rejeitar") => {
+  const aprovar = async (gmId: number) => {
     try {
-      await api.post(`/api/grupo-membros/${gmId}/${tipo}/`);
-      toast.sucesso(tipo === "aprovar" ? "Membro aprovado!" : "Pedido recusado.");
+      await api.post(`/api/grupo-membros/${gmId}/aprovar/`);
+      toast.sucesso("Membro aprovado!");
+      carregar();
+      aoMudar();
+    } catch {
+      toast.erro("Erro ao processar.");
+    }
+  };
+
+  const confirmarRejeicao = async (motivo: string) => {
+    if (rejeitarId == null) return;
+    const id = rejeitarId;
+    setRejeitarId(null);
+    try {
+      await api.post(`/api/grupo-membros/${id}/rejeitar/`, { motivo });
+      toast.info("Pedido recusado.");
       carregar();
       aoMudar();
     } catch {
@@ -330,14 +364,14 @@ function Membros({
                 <Avatar nome={m.usuario_detalhe.nome} foto={m.usuario_detalhe.foto} size={40} />
                 <span className="flex-1 font-medium text-slate-700">{m.usuario_detalhe.nome}</span>
                 <button
-                  onClick={() => acao(m.id, "aprovar")}
+                  onClick={() => aprovar(m.id)}
                   className="rounded-full bg-marca-600 p-2 text-white"
                   aria-label="Aprovar"
                 >
                   <Check size={18} />
                 </button>
                 <button
-                  onClick={() => acao(m.id, "rejeitar")}
+                  onClick={() => setRejeitarId(m.id)}
                   className="rounded-full bg-red-100 p-2 text-red-600"
                   aria-label="Rejeitar"
                 >
@@ -374,6 +408,12 @@ function Membros({
           ))}
         </div>
       </section>
+
+      <RejeitarModal
+        aberto={rejeitarId != null}
+        aoFechar={() => setRejeitarId(null)}
+        aoConfirmar={confirmarRejeicao}
+      />
     </div>
   );
 }

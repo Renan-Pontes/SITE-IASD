@@ -224,6 +224,7 @@ class Membro(models.Model):
         blank=True,
         related_name="membros_aprovados",
     )
+    motivo_rejeicao = models.CharField(max_length=255, blank=True)
 
     class Meta:
         verbose_name = "Membro da igreja"
@@ -317,6 +318,7 @@ class GrupoMembro(models.Model):
         max_length=12, choices=StatusVinculo.choices, default=StatusVinculo.PENDENTE
     )
     data_entrada = models.DateTimeField(auto_now_add=True)
+    motivo_rejeicao = models.CharField(max_length=255, blank=True)
 
     class Meta:
         verbose_name = "Membro de grupo"

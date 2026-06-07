@@ -5,6 +5,7 @@ import {
 } from "lucide-react";
 import { getTema, setTema as aplicarTemaPref, type Tema } from "../lib/tema";
 import { CampoSenha, FeedbackSenha } from "../components/CampoSenha";
+import { MinhasPendencias } from "../components/MinhasPendencias";
 import { validarSenha } from "../lib/senha";
 import { api, ApiError } from "../api/client";
 import { useAuth } from "../auth/AuthContext";
@@ -92,6 +93,8 @@ export default function Perfil() {
           )}
         </div>
       </Card>
+
+      <MinhasPendencias />
 
       {ehSuper && (
         <Link to="/super">

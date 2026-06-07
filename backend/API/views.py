@@ -457,8 +457,17 @@ class MembroViewSet(viewsets.ModelViewSet):
         if not self._exige_lideranca(membro):
             return Response({"detail": "Sem permissão."}, status=403)
         membro.status = StatusVinculo.REJEITADO
-        membro.save(update_fields=["status"])
+        membro.motivo_rejeicao = request.data.get("motivo", "")
+        membro.save(update_fields=["status", "motivo_rejeicao"])
         log_acao(request.user, "rejeitar_membro", "Membro", membro.id)
+        notificar(
+            membro.usuario,
+            "Pedido de entrada não aprovado",
+            f"Seu pedido para entrar em {membro.igreja.nome} não foi aprovado."
+            + (f" Motivo: {membro.motivo_rejeicao}" if membro.motivo_rejeicao else ""),
+            tipo="membro_rejeitado",
+            link=f"/igreja/{membro.igreja_id}",
+        )
         return Response(MembroSerializer(membro, context={"request": request}).data)
 
     @action(detail=True, methods=["post"])
@@ -657,7 +666,17 @@ class GrupoMembroViewSet(viewsets.ModelViewSet):
         if not roles.eh_lideranca_grupo(request.user, gm.grupo):
             return Response({"detail": "Sem permissão."}, status=403)
         gm.status = StatusVinculo.REJEITADO
-        gm.save(update_fields=["status"])
+        gm.motivo_rejeicao = request.data.get("motivo", "")
+        gm.save(update_fields=["status", "motivo_rejeicao"])
+        log_acao(request.user, "rejeitar_grupo_membro", "GrupoMembro", gm.id)
+        notificar(
+            gm.usuario,
+            "Pedido no grupo não aprovado",
+            f"Seu pedido para entrar em {gm.grupo.nome} não foi aprovado."
+            + (f" Motivo: {gm.motivo_rejeicao}" if gm.motivo_rejeicao else ""),
+            tipo="grupo_rejeitado",
+            link=f"/grupo/{gm.grupo_id}",
+        )
         return Response(GrupoMembroSerializer(gm, context={"request": request}).data)
 
     @action(detail=True, methods=["post"])

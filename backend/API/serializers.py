@@ -118,6 +118,8 @@ class MeSerializer(serializers.Serializer):
                 "papel": m.papel,
                 "status": m.status,
                 "eh_lideranca": m.eh_lideranca,
+                "motivo_rejeicao": m.motivo_rejeicao,
+                "data_entrada": m.data_entrada,
             }
             for m in qs
         ]
@@ -132,6 +134,8 @@ class MeSerializer(serializers.Serializer):
                 "cargo": g.cargo,
                 "status": g.status,
                 "eh_lideranca": g.eh_lideranca,
+                "motivo_rejeicao": g.motivo_rejeicao,
+                "data_entrada": g.data_entrada,
             }
             for g in qs
         ]
@@ -250,9 +254,10 @@ class MembroSerializer(serializers.ModelSerializer):
             "igreja_nome",
             "papel",
             "status",
+            "motivo_rejeicao",
             "data_entrada",
         ]
-        read_only_fields = ["usuario", "data_entrada"]
+        read_only_fields = ["usuario", "data_entrada", "motivo_rejeicao"]
 
 
 # --------------------------------------------------------------------------- #
@@ -321,9 +326,10 @@ class GrupoMembroSerializer(serializers.ModelSerializer):
             "grupo_nome",
             "cargo",
             "status",
+            "motivo_rejeicao",
             "data_entrada",
         ]
-        read_only_fields = ["usuario", "data_entrada"]
+        read_only_fields = ["usuario", "data_entrada", "motivo_rejeicao"]
 
 
 # --------------------------------------------------------------------------- #

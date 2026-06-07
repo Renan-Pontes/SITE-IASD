@@ -6,6 +6,7 @@ import { api, ApiError } from "../api/client";
 import { useAuth } from "../auth/AuthContext";
 import { useToast } from "../ui/Toast";
 import { Modal } from "../ui/Modal";
+import { RejeitarModal } from "../components/RejeitarModal";
 import type { Grupo, Igreja, Membro, Sala } from "../lib/types";
 import { Botao, Card, Carregando, Avatar, Badge, Campo, Vazio } from "../ui/components";
 import { rotulo } from "../lib/format";
@@ -71,6 +72,7 @@ function Membros({ igrejaId }: { igrejaId: number }) {
   const toast = useToast();
   const [membros, setMembros] = useState<Membro[]>([]);
   const [carregando, setCarregando] = useState(true);
+  const [rejeitarId, setRejeitarId] = useState<number | null>(null);
 
   const carregar = () => {
     setCarregando(true);
@@ -81,8 +83,15 @@ function Membros({ igrejaId }: { igrejaId: number }) {
   };
   useEffect(carregar, [igrejaId]);
 
-  const aprovar = async (m: Membro, tipo: "aprovar" | "rejeitar") => {
-    await api.post(`/api/membros/${m.id}/${tipo}/`).catch(() => toast.erro("Erro."));
+  const aprovarMembro = async (m: Membro) => {
+    await api.post(`/api/membros/${m.id}/aprovar/`).catch(() => toast.erro("Erro."));
+    carregar();
+  };
+  const confirmarRejeicao = async (motivo: string) => {
+    if (rejeitarId == null) return;
+    const id = rejeitarId;
+    setRejeitarId(null);
+    await api.post(`/api/membros/${id}/rejeitar/`, { motivo }).catch(() => toast.erro("Erro."));
     carregar();
   };
   const papel = async (m: Membro, papel: string) => {
@@ -109,10 +118,10 @@ function Membros({ igrejaId }: { igrejaId: number }) {
               <Card key={m.id} className="flex items-center gap-3 p-3">
                 <Avatar nome={m.usuario_detalhe.nome} foto={m.usuario_detalhe.foto} size={40} />
                 <span className="flex-1 font-medium text-slate-700">{m.usuario_detalhe.nome}</span>
-                <button onClick={() => aprovar(m, "aprovar")} className="rounded-full bg-marca-600 p-2 text-white" aria-label="Aprovar">
+                <button onClick={() => aprovarMembro(m)} className="rounded-full bg-marca-600 p-2 text-white" aria-label="Aprovar">
                   <Check size={18} />
                 </button>
-                <button onClick={() => aprovar(m, "rejeitar")} className="rounded-full bg-red-100 p-2 text-red-600" aria-label="Recusar">
+                <button onClick={() => setRejeitarId(m.id)} className="rounded-full bg-red-100 p-2 text-red-600" aria-label="Recusar">
                   <X size={18} />
                 </button>
               </Card>
@@ -120,6 +129,13 @@ function Membros({ igrejaId }: { igrejaId: number }) {
           </div>
         </section>
       )}
+
+      <RejeitarModal
+        aberto={rejeitarId != null}
+        aoFechar={() => setRejeitarId(null)}
+        aoConfirmar={confirmarRejeicao}
+      />
+
       <section>
         <h3 className="mb-2 font-bold text-slate-600">Membros ativos ({ativos.length})</h3>
         <div className="space-y-2">

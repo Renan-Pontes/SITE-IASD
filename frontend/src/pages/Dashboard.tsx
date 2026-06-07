@@ -13,6 +13,7 @@ import { api } from "../api/client";
 import { useAuth } from "../auth/AuthContext";
 import type { Dashboard as DashboardData } from "../lib/types";
 import { EventoCard } from "../components/EventoCard";
+import { MinhasPendencias } from "../components/MinhasPendencias";
 import { Botao, Card, SkeletonLista, Vazio } from "../ui/components";
 
 export default function Dashboard() {
@@ -35,9 +36,13 @@ export default function Dashboard() {
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-2xl font-extrabold text-slate-800">Olá, {primeiroNome}! 👋</h1>
+        <h1 className="text-2xl font-extrabold text-slate-800 dark:text-slate-100">
+          Olá, {primeiroNome}! 👋
+        </h1>
         <p className="text-slate-500">Veja o que está acontecendo na sua igreja.</p>
       </div>
+
+      <MinhasPendencias />
 
       {/* Atalhos da liderança */}
       {data?.sou_lideranca && temPendencias && (
