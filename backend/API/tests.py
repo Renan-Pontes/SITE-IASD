@@ -1,79 +1,311 @@
-import json
+"""
+Testes dos fluxos críticos — IASD Gestão.
+
+Cobre: autenticação JWT, aprovação de membro, workflow de aprovação de evento + RSVP,
+votação de pauta (incluindo anonimato), entrada/aprovação em grupo + acesso ao chat,
+e regras de visibilidade de eventos.
+"""
+
+from datetime import timedelta
 
 from django.contrib.auth import get_user_model
 from django.test import TestCase
+from django.utils import timezone
+from rest_framework.test import APIClient
 
-from API.models import Igreja, Grupos, Profile
+from API.models import (
+    CargoGrupo,
+    Evento,
+    Grupo,
+    GrupoMembro,
+    Igreja,
+    Inscricao,
+    Membro,
+    PapelIgreja,
+    Pauta,
+    StatusEvento,
+    StatusInscricao,
+    StatusVinculo,
+    VisibilidadeEvento,
+    Voto,
+)
+
+User = get_user_model()
 
 
-class AuthFlowTests(TestCase):
+def cria_user(email, nome="Fulano de Tal", senha="iasd1234"):
+    partes = nome.split(" ", 1)
+    return User.objects.create_user(
+        username=email, email=email, password=senha,
+        first_name=partes[0], last_name=partes[1] if len(partes) > 1 else "",
+    )
+
+
+def autentica(client, email, senha="iasd1234"):
+    resp = client.post(
+        "/api/auth/login/", {"username": email, "password": senha}, format="json"
+    )
+    assert resp.status_code == 200, resp.content
+    client.credentials(HTTP_AUTHORIZATION="Bearer " + resp.data["access"])
+    return resp.data
+
+
+class AuthTests(TestCase):
+    def test_registro_login_e_me(self):
+        client = APIClient()
+        resp = client.post(
+            "/api/auth/register/",
+            {"nome": "Ana Maria", "email": "ana@iasd.app", "password": "segredo123"},
+            format="json",
+        )
+        self.assertEqual(resp.status_code, 201, resp.content)
+        self.assertIn("access", resp.data)
+        self.assertTrue(User.objects.filter(email="ana@iasd.app").exists())
+
+        autentica(client, "ana@iasd.app", "segredo123")
+        me = client.get("/api/auth/me/")
+        self.assertEqual(me.status_code, 200)
+        self.assertEqual(me.data["profile"]["email"], "ana@iasd.app")
+        self.assertFalse(me.data["is_super_admin"])
+
+    def test_email_duplicado_falha(self):
+        cria_user("dup@iasd.app")
+        client = APIClient()
+        resp = client.post(
+            "/api/auth/register/",
+            {"nome": "Outro", "email": "dup@iasd.app", "password": "segredo123"},
+            format="json",
+        )
+        self.assertEqual(resp.status_code, 400)
+
+
+class MembroWorkflowTests(TestCase):
     def setUp(self):
-        self.igreja = Igreja.objects.create(
-            nome="IASD Central",
-            endereco="Rua Esperanca, 120 - Centro",
-            telefone="(11) 3456-7890",
-            email="contato@iasd.local",
+        self.igreja = Igreja.objects.create(nome="IASD Teste", cidade="São Paulo", estado="SP")
+        self.anciao = cria_user("anciao@iasd.app", "Jose Anciao")
+        Membro.objects.create(
+            usuario=self.anciao, igreja=self.igreja,
+            papel=PapelIgreja.ANCIAO, status=StatusVinculo.ATIVO,
         )
+        self.user = cria_user("user@iasd.app", "Novo Usuario")
 
-    def test_register_creates_profile_and_token(self):
-        payload = {
-            "username": "novo@iasd.local",
-            "password": "StrongPass123!",
-            "email": "novo@iasd.local",
-            "Igreja_Participante": [self.igreja.id],
+    def test_entrar_cria_pendente_e_anciao_aprova(self):
+        client = APIClient()
+        autentica(client, "user@iasd.app")
+        resp = client.post(f"/api/igrejas/{self.igreja.id}/entrar/")
+        self.assertEqual(resp.status_code, 201, resp.content)
+        membro = Membro.objects.get(usuario=self.user, igreja=self.igreja)
+        self.assertEqual(membro.status, StatusVinculo.PENDENTE)
+        self.user.profile.refresh_from_db()
+        self.assertEqual(self.user.profile.igreja_principal_id, self.igreja.id)
+
+        lider = APIClient()
+        autentica(lider, "anciao@iasd.app")
+        resp = lider.post(f"/api/membros/{membro.id}/aprovar/")
+        self.assertEqual(resp.status_code, 200, resp.content)
+        membro.refresh_from_db()
+        self.assertEqual(membro.status, StatusVinculo.ATIVO)
+
+    def test_usuario_comum_nao_aprova_membro(self):
+        membro = Membro.objects.create(
+            usuario=self.user, igreja=self.igreja, status=StatusVinculo.PENDENTE
+        )
+        outro = cria_user("outro@iasd.app")
+        Membro.objects.create(usuario=outro, igreja=self.igreja, papel=PapelIgreja.MEMBRO, status=StatusVinculo.ATIVO)
+        client = APIClient()
+        autentica(client, "outro@iasd.app")
+        resp = client.post(f"/api/membros/{membro.id}/aprovar/")
+        self.assertIn(resp.status_code, (403, 404))
+        membro.refresh_from_db()
+        self.assertEqual(membro.status, StatusVinculo.PENDENTE)
+
+
+class EventoWorkflowTests(TestCase):
+    def setUp(self):
+        self.igreja = Igreja.objects.create(nome="IASD Eventos", cidade="SP", estado="SP")
+        self.anciao = cria_user("anciao@iasd.app", "Jose Anciao")
+        Membro.objects.create(usuario=self.anciao, igreja=self.igreja, papel=PapelIgreja.ANCIAO, status=StatusVinculo.ATIVO)
+        self.membro = cria_user("membro@iasd.app", "Maria Membro")
+        Membro.objects.create(usuario=self.membro, igreja=self.igreja, papel=PapelIgreja.MEMBRO, status=StatusVinculo.ATIVO)
+        self.inicio = (timezone.now() + timedelta(days=5)).isoformat()
+        self.fim = (timezone.now() + timedelta(days=5, hours=2)).isoformat()
+
+    def _payload(self, **kw):
+        base = {
+            "titulo": "Evento Teste", "descricao": "x",
+            "igreja": self.igreja.id, "inicio": self.inicio, "fim": self.fim,
+            "visibilidade": VisibilidadeEvento.PUBLICO,
         }
-        response = self.client.post(
-            "/api/register/",
-            data=json.dumps(payload),
-            content_type="application/json",
-        )
-        self.assertEqual(response.status_code, 201)
-        data = response.json()
-        self.assertIn("token", data)
-        self.assertTrue(Profile.objects.filter(user__username="novo@iasd.local").exists())
+        base.update(kw)
+        return base
 
-    def test_login_returns_token(self):
-        User = get_user_model()
-        user = User.objects.create_user(
-            username="user@iasd.local",
-            password="StrongPass123!",
-            email="user@iasd.local",
-        )
-        Profile.objects.get_or_create(user=user)
+    def test_membro_cria_pendente_e_anciao_aprova(self):
+        client = APIClient()
+        autentica(client, "membro@iasd.app")
+        resp = client.post("/api/eventos/", self._payload(), format="json")
+        self.assertEqual(resp.status_code, 201, resp.content)
+        self.assertEqual(resp.data["status"], StatusEvento.PENDENTE)
+        evento_id = resp.data["id"]
 
-        response = self.client.post(
-            "/api/login/",
-            data=json.dumps({"username": "user@iasd.local", "password": "StrongPass123!"}),
-            content_type="application/json",
-        )
-        self.assertEqual(response.status_code, 200)
-        self.assertIn("token", response.json())
+        lider = APIClient()
+        autentica(lider, "anciao@iasd.app")
+        pend = lider.get("/api/eventos/pendentes/")
+        self.assertEqual(pend.status_code, 200)
+        self.assertTrue(any(e["id"] == evento_id for e in pend.data))
 
-    def test_grupos_requires_auth(self):
-        grupo = Grupos.objects.create(
-            nome="Musica",
-            descricao="Louvor e coral",
-            igreja=self.igreja,
-        )
-        response = self.client.get("/api/grupos/")
-        self.assertEqual(response.status_code, 401)
+        resp = lider.post(f"/api/eventos/{evento_id}/aprovar/")
+        self.assertEqual(resp.status_code, 200, resp.content)
+        self.assertEqual(resp.data["status"], StatusEvento.APROVADO)
 
-        User = get_user_model()
-        user = User.objects.create_user(
-            username="member@iasd.local",
-            password="StrongPass123!",
-            email="member@iasd.local",
-        )
-        profile, _ = Profile.objects.get_or_create(user=user)
-        profile.grupos.add(grupo)
+    def test_anciao_cria_aprovado_direto(self):
+        client = APIClient()
+        autentica(client, "anciao@iasd.app")
+        resp = client.post("/api/eventos/", self._payload(titulo="Culto"), format="json")
+        self.assertEqual(resp.status_code, 201, resp.content)
+        self.assertEqual(resp.data["status"], StatusEvento.APROVADO)
 
-        login_response = self.client.post(
-            "/api/login/",
-            data=json.dumps({"username": "member@iasd.local", "password": "StrongPass123!"}),
-            content_type="application/json",
+    def test_membro_nao_aprova_evento(self):
+        ev = Evento.objects.create(
+            titulo="X", igreja=self.igreja, inicio=timezone.now(),
+            fim=timezone.now() + timedelta(hours=1), status=StatusEvento.PENDENTE,
+            criado_por=self.membro,
         )
-        token = login_response.json()["token"]
+        client = APIClient()
+        autentica(client, "membro@iasd.app")
+        resp = client.post(f"/api/eventos/{ev.id}/aprovar/")
+        self.assertEqual(resp.status_code, 403)
 
-        authed_response = self.client.get("/api/grupos/", HTTP_AUTHORIZATION=f"Token {token}")
-        self.assertEqual(authed_response.status_code, 200)
-        self.assertEqual(len(authed_response.json()), 1)
+    def test_rsvp(self):
+        ev = Evento.objects.create(
+            titulo="Culto", igreja=self.igreja, inicio=timezone.now(),
+            fim=timezone.now() + timedelta(hours=1), status=StatusEvento.APROVADO,
+            criado_por=self.anciao,
+        )
+        client = APIClient()
+        autentica(client, "membro@iasd.app")
+        resp = client.post(f"/api/eventos/{ev.id}/rsvp/", {"status": StatusInscricao.CONFIRMADO}, format="json")
+        self.assertEqual(resp.status_code, 200, resp.content)
+        self.assertTrue(Inscricao.objects.filter(usuario=self.membro, evento=ev, status=StatusInscricao.CONFIRMADO).exists())
+        resp = client.post(f"/api/eventos/{ev.id}/rsvp/", {"status": StatusInscricao.TALVEZ}, format="json")
+        self.assertEqual(Inscricao.objects.filter(usuario=self.membro, evento=ev).count(), 1)
+
+
+class VisibilidadeEventoTests(TestCase):
+    def setUp(self):
+        self.igreja = Igreja.objects.create(nome="IASD Vis", cidade="SP", estado="SP")
+        self.criador = cria_user("criador@iasd.app")
+        Membro.objects.create(usuario=self.criador, igreja=self.igreja, papel=PapelIgreja.MEMBRO, status=StatusVinculo.ATIVO)
+        agora = timezone.now()
+        Evento.objects.create(
+            titulo="Publico", igreja=self.igreja, inicio=agora, fim=agora + timedelta(hours=1),
+            status=StatusEvento.APROVADO, visibilidade=VisibilidadeEvento.PUBLICO, criado_por=self.criador,
+        )
+        Evento.objects.create(
+            titulo="Pendente", igreja=self.igreja, inicio=agora, fim=agora + timedelta(hours=1),
+            status=StatusEvento.PENDENTE, visibilidade=VisibilidadeEvento.PUBLICO, criado_por=self.criador,
+        )
+
+    def test_anonimo_ve_so_publico_aprovado(self):
+        client = APIClient()
+        resp = client.get("/api/eventos/")
+        self.assertEqual(resp.status_code, 200)
+        titulos = [e["titulo"] for e in resp.data["results"]]
+        self.assertIn("Publico", titulos)
+        self.assertNotIn("Pendente", titulos)
+
+
+class PautaVotacaoTests(TestCase):
+    def setUp(self):
+        self.igreja = Igreja.objects.create(nome="IASD Pauta", cidade="SP", estado="SP")
+        self.anciao = cria_user("anciao@iasd.app", "Jose Anciao")
+        Membro.objects.create(usuario=self.anciao, igreja=self.igreja, papel=PapelIgreja.ANCIAO, status=StatusVinculo.ATIVO)
+        self.pastor = cria_user("pastor@iasd.app", "Paulo Pastor")
+        Membro.objects.create(usuario=self.pastor, igreja=self.igreja, papel=PapelIgreja.PASTOR, status=StatusVinculo.ATIVO)
+        self.membro = cria_user("membro@iasd.app", "Maria Membro")
+        Membro.objects.create(usuario=self.membro, igreja=self.igreja, papel=PapelIgreja.MEMBRO, status=StatusVinculo.ATIVO)
+
+    def test_anciao_cria_e_vota_membro_nao_vota(self):
+        lider = APIClient()
+        autentica(lider, "anciao@iasd.app")
+        resp = lider.post("/api/pautas/", {
+            "titulo": "Reforma", "descricao": "x", "igreja": self.igreja.id, "anonima": False,
+        }, format="json")
+        self.assertEqual(resp.status_code, 201, resp.content)
+        pauta_id = resp.data["id"]
+
+        resp = lider.post(f"/api/pautas/{pauta_id}/votar/", {"opcao": "sim"}, format="json")
+        self.assertEqual(resp.status_code, 200, resp.content)
+        self.assertEqual(Voto.objects.filter(pauta_id=pauta_id).count(), 1)
+
+        comum = APIClient()
+        autentica(comum, "membro@iasd.app")
+        resp = comum.post(f"/api/pautas/{pauta_id}/votar/", {"opcao": "nao"}, format="json")
+        self.assertIn(resp.status_code, (403, 404))
+
+    def test_anonimato_oculta_autor(self):
+        pauta = Pauta.objects.create(
+            titulo="Secreta", igreja=self.igreja, criada_por=self.anciao, anonima=True,
+        )
+        Voto.objects.create(pauta=pauta, usuario=self.anciao, opcao="sim")
+        lider = APIClient()
+        autentica(lider, "pastor@iasd.app")
+        resp = lider.get(f"/api/pautas/{pauta.id}/votos/")
+        self.assertEqual(resp.status_code, 200, resp.content)
+        self.assertEqual(len(resp.data), 1)
+        self.assertIsNone(resp.data[0]["usuario_detalhe"])
+
+    def test_pauta_nao_anonima_revela_autor(self):
+        pauta = Pauta.objects.create(
+            titulo="Aberta", igreja=self.igreja, criada_por=self.anciao, anonima=False,
+        )
+        Voto.objects.create(pauta=pauta, usuario=self.anciao, opcao="sim")
+        lider = APIClient()
+        autentica(lider, "anciao@iasd.app")
+        resp = lider.get(f"/api/pautas/{pauta.id}/votos/")
+        self.assertEqual(resp.status_code, 200)
+        self.assertIsNotNone(resp.data[0]["usuario_detalhe"])
+
+
+class GrupoChatTests(TestCase):
+    def setUp(self):
+        self.igreja = Igreja.objects.create(nome="IASD Grupo", cidade="SP", estado="SP")
+        self.anciao = cria_user("anciao@iasd.app", "Jose Anciao")
+        Membro.objects.create(usuario=self.anciao, igreja=self.igreja, papel=PapelIgreja.ANCIAO, status=StatusVinculo.ATIVO)
+        self.lider = cria_user("lider@iasd.app", "Lidia Lider")
+        Membro.objects.create(usuario=self.lider, igreja=self.igreja, papel=PapelIgreja.MEMBRO, status=StatusVinculo.ATIVO)
+        self.grupo = Grupo.objects.create(nome="Jovens", igreja=self.igreja)
+        GrupoMembro.objects.create(usuario=self.lider, grupo=self.grupo, cargo=CargoGrupo.DIRETOR, status=StatusVinculo.ATIVO)
+        self.user = cria_user("user@iasd.app", "Novo Usuario")
+
+    def test_entrar_aprovar_e_chat(self):
+        client = APIClient()
+        autentica(client, "user@iasd.app")
+        resp = client.post(f"/api/grupos/{self.grupo.id}/entrar/")
+        self.assertEqual(resp.status_code, 201, resp.content)
+        gm = GrupoMembro.objects.get(usuario=self.user, grupo=self.grupo)
+        self.assertEqual(gm.status, StatusVinculo.PENDENTE)
+
+        resp = client.get(f"/api/grupos/{self.grupo.id}/mensagens/")
+        self.assertEqual(resp.status_code, 403)
+
+        diretor = APIClient()
+        autentica(diretor, "lider@iasd.app")
+        resp = diretor.post(f"/api/grupo-membros/{gm.id}/aprovar/")
+        self.assertEqual(resp.status_code, 200, resp.content)
+
+        resp = client.get(f"/api/grupos/{self.grupo.id}/mensagens/")
+        self.assertEqual(resp.status_code, 200)
+        resp = client.post(f"/api/grupos/{self.grupo.id}/mensagens/", {"conteudo": "Olá grupo!"}, format="json")
+        self.assertEqual(resp.status_code, 201, resp.content)
+
+
+class DistanciaIgrejaTests(TestCase):
+    def test_ordena_por_proximidade(self):
+        Igreja.objects.create(nome="Perto", latitude=-23.55, longitude=-46.63, cidade="SP", estado="SP")
+        Igreja.objects.create(nome="Longe", latitude=-22.85, longitude=-47.22, cidade="Hortolandia", estado="SP")
+        client = APIClient()
+        resp = client.get("/api/igrejas/?lat=-23.55&lng=-46.63")
+        self.assertEqual(resp.status_code, 200)
+        nomes = [i["nome"] for i in resp.data["results"]]
+        self.assertEqual(nomes[0], "Perto")
+        self.assertIsNotNone(resp.data["results"][0]["distancia_km"])

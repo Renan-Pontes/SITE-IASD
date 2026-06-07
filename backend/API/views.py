@@ -1,1476 +1,1047 @@
-import json
-import secrets
+"""
+Viewsets e endpoints da API — IASD Gestão.
+
+Convenções de autorização:
+- Leitura de dados públicos (igrejas, grupos, eventos aprovados públicos) é aberta.
+- Ações sensíveis (aprovar evento, votar pauta, gerir membros) checam `roles.*`.
+- Toda mutação relevante grava AuditLog via `utils.log_acao`.
+"""
+
 from datetime import timedelta
 
-from django.conf import settings
-from django.contrib.auth import authenticate, get_user_model
-from django.core.exceptions import ValidationError
-from django.contrib.auth.password_validation import validate_password
-from django.db.models import Q
-from django.http import JsonResponse
+from django.contrib.auth import get_user_model
+from django.db.models import Count, Q
 from django.utils import timezone
-from django.utils.dateparse import parse_datetime
-from django.utils.decorators import method_decorator
-from django.views import View
-from django.views.decorators.csrf import csrf_exempt
-from django.views.decorators.http import require_POST
+from rest_framework import status, viewsets
+from rest_framework.decorators import action, api_view, permission_classes
+from rest_framework.permissions import AllowAny, IsAuthenticated
+from rest_framework.response import Response
+from rest_framework.views import APIView
 
+from . import roles
 from .models import (
-    AuthToken,
-    Profile,
+    CargoGrupo,
+    Evento,
+    Grupo,
+    GrupoMembro,
     Igreja,
-    Grupos,
-    Events,
-    Atividades,
-    Comunicados,
-    Avisos,
-    NotificacoesGrupos,
-    RecursosEducacionais,
-    ArquivosIgreja,
-    PostagensGrupos,
-    ComentariosPostagens,
-    MensagensPrivadas,
+    Inscricao,
+    Membro,
+    Mensagem,
+    Notificacao,
+    OpcaoVoto,
+    PapelIgreja,
+    Pauta,
+    Recorrencia,
+    Sala,
+    StatusEvento,
+    StatusInscricao,
+    StatusPauta,
+    StatusVinculo,
+    VisibilidadeEvento,
+    Voto,
 )
+from .permissions import IsSuperAdmin
+from .serializers import (
+    AuditLogSerializer,
+    EventoSerializer,
+    GrupoMembroSerializer,
+    GrupoSerializer,
+    IgrejaSerializer,
+    InscricaoSerializer,
+    MembroSerializer,
+    MensagemSerializer,
+    MeSerializer,
+    NotificacaoSerializer,
+    PautaSerializer,
+    ProfileSerializer,
+    RegisterSerializer,
+    SalaSerializer,
+    UsuarioMiniSerializer,
+    VotoSerializer,
+)
+from .utils import haversine_km, log_acao, notificar
+
+User = get_user_model()
+
+
+# --------------------------------------------------------------------------- #
+# Autenticação / perfil
+# --------------------------------------------------------------------------- #
+class RegisterView(APIView):
+    permission_classes = [AllowAny]
 
-
-def json_error(message, status=400, **extra):
-    payload = {"error": message}
-    payload.update(extra)
-    return JsonResponse(payload, status=status)
-
-
-def parse_json_body(request):
-    if not request.body:
-        return {}, None
-    try:
-        return json.loads(request.body), None
-    except json.JSONDecodeError:
-        return None, json_error("Invalid JSON body", status=400)
-
-
-def get_request_data(request):
-    content_type = request.content_type or ""
-    if content_type.startswith("application/json"):
-        return parse_json_body(request)
-    if request.POST:
-        return request.POST.dict(), None
-    if not request.body:
-        return {}, None
-    return parse_json_body(request)
-
-
-def get_list_value(data, name, request=None):
-    if name in data:
-        value = data.get(name)
-        if isinstance(value, list):
-            return value
-        if isinstance(value, str):
-            return [item.strip() for item in value.split(",") if item.strip()]
-        return [value]
-    if request is not None:
-        values = request.POST.getlist(name)
-        if values:
-            return values
-    return []
-
-
-def require_fields(data, fields):
-    missing = [field for field in fields if data.get(field) in (None, "")]
-    if missing:
-        return json_error("Missing required fields", status=400, fields=missing)
-    return None
-
-
-def parse_int(value, field_name, required=True):
-    if value in (None, ""):
-        if required:
-            return None, json_error(f"{field_name} is required", status=400)
-        return None, None
-    try:
-        return int(value), None
-    except (TypeError, ValueError):
-        return None, json_error(f"Invalid {field_name}", status=400)
-
-
-def parse_datetime_value(value, field_name, required=True):
-    if value in (None, ""):
-        if required:
-            return None, json_error(f"{field_name} is required", status=400)
-        return None, None
-    parsed = parse_datetime(value)
-    if parsed is None:
-        return None, json_error(f"Invalid datetime for {field_name}", status=400)
-    if timezone.is_naive(parsed):
-        parsed = timezone.make_aware(parsed, timezone.get_default_timezone())
-    return parsed, None
-
-
-def parse_bool(value):
-    if isinstance(value, bool):
-        return value
-    if isinstance(value, str):
-        return value.strip().lower() in ("1", "true", "yes", "y", "sim")
-    return bool(value)
-
-
-def extract_token_key(request):
-    auth_header = request.META.get("HTTP_AUTHORIZATION", "")
-    if not auth_header:
-        return None
-    parts = auth_header.split()
-    if len(parts) == 2 and parts[0].lower() in ("token", "bearer"):
-        return parts[1]
-    return auth_header
-
-
-def token_is_expired(token):
-    ttl_days = getattr(settings, "AUTH_TOKEN_TTL_DAYS", 7)
-    if not ttl_days or ttl_days <= 0:
-        return False
-    return token.created_at < timezone.now() - timedelta(days=ttl_days)
-
-
-def issue_token(user):
-    token, _ = AuthToken.objects.get_or_create(user=user)
-    now = timezone.now()
-    token.key = secrets.token_hex(20)
-    token.created_at = now
-    token.last_used_at = now
-    token.save()
-    return token
-
-
-def get_authenticated_profile(request):
-    token_key = extract_token_key(request)
-    if not token_key:
-        return None, json_error("Authorization header missing", status=401)
-    try:
-        token = AuthToken.objects.select_related("user").get(key=token_key)
-    except AuthToken.DoesNotExist:
-        return None, json_error("Invalid token", status=401)
-    if token_is_expired(token):
-        token.delete()
-        return None, json_error("Token expired", status=401)
-    token.last_used_at = timezone.now()
-    token.save(update_fields=["last_used_at"])
-    profile, _ = Profile.objects.get_or_create(user=token.user)
-    return profile, None
-
-
-def has_staff_access(profile):
-    return profile.is_admin or profile.is_elder
-
-
-def is_group_member(profile, grupo):
-    if has_staff_access(profile):
-        return True
-    return profile.grupos.filter(pk=grupo.pk).exists()
-
-
-def igreja_payload(igreja):
-    return {
-        "id": igreja.id,
-        "nome": igreja.nome,
-        "endereco": igreja.endereco,
-        "telefone": igreja.telefone,
-        "email": igreja.email,
-    }
-
-
-def grupo_payload(grupo):
-    return {
-        "id": grupo.id,
-        "nome": grupo.nome,
-        "descricao": grupo.descricao,
-        "igreja_id": grupo.igreja_id,
-        "igreja_nome": grupo.igreja.nome if grupo.igreja_id else None,
-    }
-
-
-def profile_summary_payload(profile):
-    return {
-        "id": profile.id,
-        "user_id": profile.user_id,
-        "username": profile.user.username,
-        "email": profile.user.email,
-        "telefone": profile.telefone,
-        "is_admin": profile.is_admin,
-        "is_elder": profile.is_elder,
-        "image_url": profile.image.url if profile.image else None,
-    }
-
-
-def profile_detail_payload(profile):
-    return {
-        **profile_summary_payload(profile),
-        "bio": profile.bio,
-        "igrejas": list(profile.igrejas.values("id", "nome")),
-        "grupos": list(profile.grupos.values("id", "nome")),
-    }
-
-
-def event_payload(event):
-    return {
-        "id": event.id,
-        "titulo": event.titulo,
-        "descricao": event.descricao,
-        "data_inicio": event.data_inicio,
-        "data_fim": event.data_fim,
-        "igreja_id": event.igreja_id,
-        "igreja_nome": event.igreja.nome if event.igreja_id else None,
-    }
-
-
-def atividade_payload(atividade):
-    return {
-        "id": atividade.id,
-        "nome": atividade.nome,
-        "descricao": atividade.descricao,
-        "data": atividade.data,
-        "grupo_id": atividade.Grupo_id,
-        "grupo_nome": atividade.Grupo.nome if atividade.Grupo_id else None,
-    }
-
-
-def comunicado_payload(comunicado):
-    return {
-        "id": comunicado.id,
-        "titulo": comunicado.titulo,
-        "mensagem": comunicado.mensagem,
-        "data_envio": comunicado.data_envio,
-        "igreja_id": comunicado.igreja_id,
-        "igreja_nome": comunicado.igreja.nome if comunicado.igreja_id else None,
-    }
-
-
-def aviso_payload(aviso):
-    return {
-        "id": aviso.id,
-        "titulo": aviso.titulo,
-        "mensagem": aviso.mensagem,
-        "data_envio": aviso.data_envio,
-        "igreja_id": aviso.igreja_id,
-        "igreja_nome": aviso.igreja.nome if aviso.igreja_id else None,
-    }
-
-
-def notificacao_payload(notificacao):
-    return {
-        "id": notificacao.id,
-        "perfil_id": notificacao.perfil_id,
-        "grupo_id": notificacao.grupo_id,
-        "grupo_nome": notificacao.grupo.nome if notificacao.grupo_id else None,
-        "mensagem": notificacao.mensagem,
-        "data_notificacao": notificacao.data_notificacao,
-        "lida": notificacao.lida,
-    }
-
-
-def recurso_payload(recurso):
-    return {
-        "id": recurso.id,
-        "titulo": recurso.titulo,
-        "descricao": recurso.descricao,
-        "arquivo_url": recurso.arquivo.url if recurso.arquivo else None,
-        "data_upload": recurso.data_upload,
-        "igreja_id": recurso.igreja_id,
-        "igreja_nome": recurso.igreja.nome if recurso.igreja_id else None,
-    }
-
-
-def arquivo_payload(arquivo):
-    return {
-        "id": arquivo.id,
-        "nome_arquivo": arquivo.nome_arquivo,
-        "arquivo_url": arquivo.arquivo.url if arquivo.arquivo else None,
-        "data_upload": arquivo.data_upload,
-        "igreja_id": arquivo.igreja_id,
-        "igreja_nome": arquivo.igreja.nome if arquivo.igreja_id else None,
-    }
-
-
-def postagem_payload(postagem):
-    return {
-        "id": postagem.id,
-        "autor_id": postagem.autor_id,
-        "autor_nome": postagem.autor.user.username if postagem.autor_id else None,
-        "grupo_id": postagem.grupo_id,
-        "grupo_nome": postagem.grupo.nome if postagem.grupo_id else None,
-        "conteudo": postagem.conteudo,
-        "arquivo_url": postagem.arquivo.url if postagem.arquivo else None,
-        "enquete": postagem.enquete,
-        "link": postagem.link,
-        "data_postagem": postagem.data_postagem,
-    }
-
-
-def comentario_payload(comentario):
-    return {
-        "id": comentario.id,
-        "postagem_id": comentario.postagem_id,
-        "autor_id": comentario.autor_id,
-        "autor_nome": comentario.autor.user.username if comentario.autor_id else None,
-        "conteudo": comentario.conteudo,
-        "data_comentario": comentario.data_comentario,
-    }
-
-
-def mensagem_payload(mensagem):
-    return {
-        "id": mensagem.id,
-        "remetente_id": mensagem.remetente_id,
-        "remetente_nome": mensagem.remetente.user.username if mensagem.remetente_id else None,
-        "destinatario_id": mensagem.destinatario_id,
-        "destinatario_nome": mensagem.destinatario.user.username if mensagem.destinatario_id else None,
-        "conteudo": mensagem.conteudo,
-        "data_envio": mensagem.data_envio,
-        "lida": mensagem.lida,
-    }
-
-
-class AuthenticatedView(View):
-    require_staff = False
-
-    @method_decorator(csrf_exempt)
-    def dispatch(self, request, *args, **kwargs):
-        profile, error = get_authenticated_profile(request)
-        if error:
-            return error
-        if self.require_staff and not has_staff_access(profile):
-            return json_error("Forbidden", status=403)
-        request.profile = profile
-        return super().dispatch(request, *args, **kwargs)
-
-
-class StaffView(AuthenticatedView):
-    require_staff = True
-
-
-@csrf_exempt
-@require_POST
-def login_view(request):
-    data, error = parse_json_body(request)
-    if error:
-        return error
-    missing = require_fields(data, ["username", "password"])
-    if missing:
-        return missing
-
-    user = authenticate(request, username=data.get("username"), password=data.get("password"))
-    if user is None:
-        return json_error("Invalid credentials", status=401)
-
-    token = issue_token(user)
-    profile, _ = Profile.objects.get_or_create(user=user)
-    payload = {
-        "token": token.key,
-        "user": {
-            "id": user.id,
-            "username": user.username,
-            "email": user.email,
-        },
-        "profile": profile_detail_payload(profile),
-    }
-    return JsonResponse(payload)
-
-
-@csrf_exempt
-@require_POST
-def logout_view(request):
-    token_key = extract_token_key(request)
-    if not token_key:
-        return json_error("Authorization header missing", status=401)
-    try:
-        token = AuthToken.objects.get(key=token_key)
-    except AuthToken.DoesNotExist:
-        return json_error("Invalid token", status=401)
-    token.delete()
-    return JsonResponse({"message": "Logged out successfully"})
-
-
-@csrf_exempt
-@require_POST
-def register_view(request):
-    data, error = get_request_data(request)
-    if error:
-        return error
-    missing = require_fields(data, ["username", "password", "email"])
-    if missing:
-        return missing
-
-    username = data.get("username")
-    password = data.get("password")
-    email = data.get("email")
-    telefone = data.get("telefone")
-
-    User = get_user_model()
-    if User.objects.filter(username=username).exists():
-        return json_error("Username already exists", status=400)
-
-    try:
-        validate_password(password, user=User(username=username, email=email))
-    except ValidationError as exc:
-        return json_error("Invalid password", status=400, details=exc.messages)
-
-    user = User.objects.create_user(username=username, password=password, email=email)
-    profile, _ = Profile.objects.get_or_create(user=user)
-    if telefone:
-        profile.telefone = telefone
-
-    igreja_ids = get_list_value(data, "Igreja_Participante", request=request)
-    if not igreja_ids:
-        igreja_ids = get_list_value(data, "igreja_ids", request=request)
-    if igreja_ids:
-        parsed_ids = []
-        for igreja_id in igreja_ids:
-            parsed_id, parse_error = parse_int(igreja_id, "igreja_id")
-            if parse_error:
-                return parse_error
-            parsed_ids.append(parsed_id)
-        igrejas = Igreja.objects.filter(id__in=parsed_ids)
-        if igrejas.count() != len(parsed_ids):
-            return json_error("One or more igrejas not found", status=400)
-        profile.igrejas.add(*igrejas)
-
-    profile.save()
-    token = issue_token(user)
-    payload = {
-        "message": "User registered successfully",
-        "token": token.key,
-        "user": {"id": user.id, "username": user.username, "email": user.email},
-        "profile": profile_detail_payload(profile),
-    }
-    return JsonResponse(payload, status=201)
-
-
-class IgrejaList(View):
-    def get(self, request):
-        igrejas = Igreja.objects.all().order_by("nome")
-        data = [igreja_payload(igreja) for igreja in igrejas]
-        return JsonResponse(data, safe=False)
-
-
-class IgrejaDetail(View):
-    def get(self, request, pk):
-        try:
-            igreja = Igreja.objects.get(pk=pk)
-        except Igreja.DoesNotExist:
-            return json_error("Igreja not found", status=404)
-        return JsonResponse(igreja_payload(igreja))
-
-
-class GruposList(AuthenticatedView):
-    def get(self, request):
-        grupos = Grupos.objects.select_related("igreja").all()
-        igreja_id, error = parse_int(request.GET.get("igreja_id"), "igreja_id", required=False)
-        if error:
-            return error
-        if igreja_id is not None:
-            grupos = grupos.filter(igreja_id=igreja_id)
-        if not has_staff_access(request.profile):
-            grupos = grupos.filter(id__in=request.profile.grupos.values_list("id", flat=True))
-        data = [grupo_payload(grupo) for grupo in grupos]
-        return JsonResponse(data, safe=False)
-
-
-class GruposDetail(AuthenticatedView):
-    def get(self, request, pk):
-        try:
-            grupo = Grupos.objects.select_related("igreja").get(pk=pk)
-        except Grupos.DoesNotExist:
-            return json_error("Grupo not found", status=404)
-        if not is_group_member(request.profile, grupo):
-            return json_error("Forbidden", status=403)
-        return JsonResponse(grupo_payload(grupo))
-
-
-class ProfileList(StaffView):
-    def get(self, request):
-        profiles = Profile.objects.select_related("user").all()
-        data = [profile_summary_payload(profile) for profile in profiles]
-        return JsonResponse(data, safe=False)
-
-
-class ProfileNotify(AuthenticatedView):
-    def get(self, request):
-        include_read = request.GET.get("include_read") in ("1", "true", "yes")
-        notificacoes = NotificacoesGrupos.objects.select_related("grupo").filter(
-            perfil=request.profile
-        )
-        if not include_read:
-            notificacoes = notificacoes.filter(lida=False)
-        data = [notificacao_payload(notificacao) for notificacao in notificacoes]
-        return JsonResponse(data, safe=False)
-
-
-class ProfileDetail(AuthenticatedView):
-    def get(self, request, pk):
-        try:
-            profile = Profile.objects.select_related("user").prefetch_related(
-                "igrejas", "grupos"
-            ).get(pk=pk)
-        except Profile.DoesNotExist:
-            return json_error("Profile not found", status=404)
-        if profile.id != request.profile.id and not has_staff_access(request.profile):
-            return json_error("Forbidden", status=403)
-        return JsonResponse(profile_detail_payload(profile))
-
-
-class ProfileUpdate(AuthenticatedView):
-    def post(self, request, pk):
-        try:
-            profile = Profile.objects.select_related("user").get(pk=pk)
-        except Profile.DoesNotExist:
-            return json_error("Profile not found", status=404)
-        if profile.id != request.profile.id and not has_staff_access(request.profile):
-            return json_error("Forbidden", status=403)
-
-        data, error = get_request_data(request)
-        if error:
-            return error
-        profile.telefone = data.get("telefone", profile.telefone)
-        profile.bio = data.get("bio", profile.bio)
-        if request.FILES.get("image"):
-            profile.image = request.FILES["image"]
-
-        if has_staff_access(request.profile):
-            igreja_ids = get_list_value(data, "igreja_ids", request=request)
-            if igreja_ids:
-                parsed_ids = []
-                for igreja_id in igreja_ids:
-                    parsed_id, parse_error = parse_int(igreja_id, "igreja_id")
-                    if parse_error:
-                        return parse_error
-                    parsed_ids.append(parsed_id)
-                igrejas = Igreja.objects.filter(id__in=parsed_ids)
-                if igrejas.count() != len(parsed_ids):
-                    return json_error("One or more igrejas not found", status=400)
-                profile.igrejas.set(igrejas)
-
-            grupo_ids = get_list_value(data, "grupo_ids", request=request)
-            if grupo_ids:
-                parsed_ids = []
-                for grupo_id in grupo_ids:
-                    parsed_id, parse_error = parse_int(grupo_id, "grupo_id")
-                    if parse_error:
-                        return parse_error
-                    parsed_ids.append(parsed_id)
-                grupos = Grupos.objects.filter(id__in=parsed_ids)
-                if grupos.count() != len(parsed_ids):
-                    return json_error("One or more grupos not found", status=400)
-                profile.grupos.set(grupos)
-
-        profile.save()
-        return JsonResponse({"message": "Profile updated successfully"})
-
-
-class ProfileDelete(AuthenticatedView):
-    def post(self, request, pk):
-        try:
-            profile = Profile.objects.select_related("user").get(pk=pk)
-        except Profile.DoesNotExist:
-            return json_error("Profile not found", status=404)
-        if profile.id != request.profile.id and not has_staff_access(request.profile):
-            return json_error("Forbidden", status=403)
-        profile.user.delete()
-        return JsonResponse({"message": "Profile deleted successfully"})
-
-
-class EventsList(View):
-    def get(self, request):
-        events = Events.objects.select_related("igreja").all()
-        igreja_id, error = parse_int(request.GET.get("igreja_id"), "igreja_id", required=False)
-        if error:
-            return error
-        if igreja_id is not None:
-            events = events.filter(igreja_id=igreja_id)
-        data = [event_payload(event) for event in events]
-        return JsonResponse(data, safe=False)
-
-
-class EventsDetail(View):
-    def get(self, request, pk):
-        try:
-            event = Events.objects.select_related("igreja").get(pk=pk)
-        except Events.DoesNotExist:
-            return json_error("Event not found", status=404)
-        return JsonResponse(event_payload(event))
-
-
-class EventsCreate(StaffView):
     def post(self, request):
-        data, error = get_request_data(request)
-        if error:
-            return error
-        missing = require_fields(data, ["titulo", "data_inicio", "data_fim", "igreja_id"])
-        if missing:
-            return missing
+        serializer = RegisterSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        user = serializer.save()
+        log_acao(user, "registro", "User", user.id)
+        from rest_framework_simplejwt.tokens import RefreshToken
 
-        igreja_id, parse_error = parse_int(data.get("igreja_id"), "igreja_id")
-        if parse_error:
-            return parse_error
-        data_inicio, parse_error = parse_datetime_value(data.get("data_inicio"), "data_inicio")
-        if parse_error:
-            return parse_error
-        data_fim, parse_error = parse_datetime_value(data.get("data_fim"), "data_fim")
-        if parse_error:
-            return parse_error
-        if data_fim < data_inicio:
-            return json_error("data_fim must be after data_inicio", status=400)
-
-        try:
-            igreja = Igreja.objects.get(pk=igreja_id)
-        except Igreja.DoesNotExist:
-            return json_error("Igreja not found", status=404)
-
-        event = Events.objects.create(
-            titulo=data.get("titulo"),
-            descricao=data.get("descricao", ""),
-            data_inicio=data_inicio,
-            data_fim=data_fim,
-            igreja=igreja,
+        refresh = RefreshToken.for_user(user)
+        return Response(
+            {
+                "access": str(refresh.access_token),
+                "refresh": str(refresh),
+                "user": ProfileSerializer(user.profile, context={"request": request}).data,
+            },
+            status=status.HTTP_201_CREATED,
         )
-        return JsonResponse({"message": "Event created successfully", "event_id": event.id}, status=201)
 
 
-class EventsUpdate(StaffView):
-    def post(self, request, pk):
-        try:
-            event = Events.objects.get(pk=pk)
-        except Events.DoesNotExist:
-            return json_error("Event not found", status=404)
+class MeView(APIView):
+    permission_classes = [IsAuthenticated]
 
-        data, error = get_request_data(request)
-        if error:
-            return error
-        if "titulo" in data:
-            event.titulo = data.get("titulo") or event.titulo
-        if "descricao" in data:
-            event.descricao = data.get("descricao") or ""
-        if "data_inicio" in data:
-            data_inicio, parse_error = parse_datetime_value(
-                data.get("data_inicio"), "data_inicio", required=False
+    def get(self, request):
+        data = MeSerializer(
+            {"user": request.user, "profile": request.user.profile},
+            context={"request": request},
+        ).data
+        return Response(data)
+
+    def patch(self, request):
+        serializer = ProfileSerializer(
+            request.user.profile,
+            data=request.data,
+            partial=True,
+            context={"request": request},
+        )
+        serializer.is_valid(raise_exception=True)
+        serializer.save()
+        return Response(serializer.data)
+
+
+class TrocarSenhaView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        atual = request.data.get("senha_atual", "")
+        nova = request.data.get("senha_nova", "")
+        if not request.user.check_password(atual):
+            return Response(
+                {"senha_atual": "Senha atual incorreta."},
+                status=status.HTTP_400_BAD_REQUEST,
             )
-            if parse_error:
-                return parse_error
-            if data_inicio is not None:
-                event.data_inicio = data_inicio
-        if "data_fim" in data:
-            data_fim, parse_error = parse_datetime_value(
-                data.get("data_fim"), "data_fim", required=False
+        from django.contrib.auth.password_validation import validate_password
+        from django.core.exceptions import ValidationError
+
+        try:
+            validate_password(nova, request.user)
+        except ValidationError as exc:
+            return Response({"senha_nova": exc.messages}, status=400)
+        request.user.set_password(nova)
+        request.user.save(update_fields=["password"])
+        log_acao(request.user, "troca_senha", "User", request.user.id)
+        return Response({"detail": "Senha atualizada."})
+
+
+# --------------------------------------------------------------------------- #
+# Igreja
+# --------------------------------------------------------------------------- #
+class IgrejaViewSet(viewsets.ModelViewSet):
+    serializer_class = IgrejaSerializer
+    filterset_fields = ["cidade", "estado", "ativo"]
+    search_fields = ["nome", "cidade", "endereco"]
+    ordering_fields = ["nome", "criado_em"]
+
+    def get_queryset(self):
+        qs = Igreja.objects.all()
+        if self.action == "list":
+            qs = qs.filter(ativo=True)
+        return qs
+
+    def get_permissions(self):
+        if self.action in ("list", "retrieve"):
+            return [AllowAny()]
+        if self.action == "create":
+            return [IsSuperAdmin()]
+        return [IsAuthenticated()]
+
+    def _pode_editar(self, igreja):
+        return roles.eh_lideranca_igreja(self.request.user, igreja)
+
+    def update(self, request, *args, **kwargs):
+        igreja = self.get_object()
+        if not self._pode_editar(igreja):
+            return Response({"detail": "Sem permissão."}, status=403)
+        return super().update(request, *args, **kwargs)
+
+    def destroy(self, request, *args, **kwargs):
+        if not roles.is_super(request.user):
+            return Response({"detail": "Apenas o administrador geral."}, status=403)
+        return super().destroy(request, *args, **kwargs)
+
+    def perform_create(self, serializer):
+        igreja = serializer.save()
+        log_acao(self.request.user, "criar_igreja", "Igreja", igreja.id)
+
+    def list(self, request, *args, **kwargs):
+        """Lista com ordenação opcional por proximidade (?lat=&lng=)."""
+        qs = self.filter_queryset(self.get_queryset())
+        lat = request.query_params.get("lat")
+        lng = request.query_params.get("lng")
+
+        if lat and lng:
+            igrejas = list(qs)
+            for ig in igrejas:
+                ig.distancia_km = (
+                    haversine_km(lat, lng, ig.latitude, ig.longitude)
+                    if ig.latitude is not None and ig.longitude is not None
+                    else None
+                )
+            igrejas.sort(
+                key=lambda i: (
+                    i.distancia_km is None,
+                    i.distancia_km if i.distancia_km is not None else 0,
+                )
             )
-            if parse_error:
-                return parse_error
-            if data_fim is not None:
-                event.data_fim = data_fim
-        if event.data_fim < event.data_inicio:
-            return json_error("data_fim must be after data_inicio", status=400)
+            page = self.paginate_queryset(igrejas)
+            serializer = self.get_serializer(page, many=True)
+            return self.get_paginated_response(serializer.data)
 
-        event.save()
-        return JsonResponse({"message": "Event updated successfully"})
+        return super().list(request, *args, **kwargs)
 
-
-class EventsDelete(StaffView):
-    def post(self, request, pk):
-        try:
-            event = Events.objects.get(pk=pk)
-        except Events.DoesNotExist:
-            return json_error("Event not found", status=404)
-        event.delete()
-        return JsonResponse({"message": "Event deleted successfully"})
-
-
-class AtividadesList(AuthenticatedView):
-    def get(self, request):
-        atividades = Atividades.objects.select_related("Grupo")
-        grupo_id, error = parse_int(request.GET.get("grupo_id"), "grupo_id", required=False)
-        if error:
-            return error
-        if grupo_id is not None:
-            atividades = atividades.filter(Grupo_id=grupo_id)
-        if not has_staff_access(request.profile):
-            atividades = atividades.filter(
-                Grupo_id__in=request.profile.grupos.values_list("id", flat=True)
+    # --- membros / entrada ---
+    @action(detail=True, methods=["post"], permission_classes=[IsAuthenticated])
+    def entrar(self, request, pk=None):
+        igreja = self.get_object()
+        membro, created = Membro.objects.get_or_create(
+            usuario=request.user,
+            igreja=igreja,
+            defaults={"papel": PapelIgreja.VISITANTE, "status": StatusVinculo.PENDENTE},
+        )
+        if not created and membro.status == StatusVinculo.REJEITADO:
+            membro.status = StatusVinculo.PENDENTE
+            membro.save(update_fields=["status"])
+        # Define como igreja principal se o usuário ainda não tem.
+        if request.user.profile.igreja_principal_id is None:
+            request.user.profile.igreja_principal = igreja
+            request.user.profile.save(update_fields=["igreja_principal"])
+        log_acao(request.user, "pedir_entrada_igreja", "Igreja", igreja.id)
+        # Avisa a liderança.
+        for lider in Membro.objects.filter(
+            igreja=igreja,
+            status=StatusVinculo.ATIVO,
+            papel__in=[PapelIgreja.ANCIAO, PapelIgreja.PASTOR, PapelIgreja.ADMIN],
+        ).select_related("usuario"):
+            notificar(
+                lider.usuario,
+                "Novo pedido de entrada",
+                f"{request.user.get_full_name() or request.user.username} pediu para entrar em {igreja.nome}.",
+                tipo="membro_pendente",
+                link=f"/igreja/{igreja.id}/membros",
             )
-        data = [atividade_payload(atividade) for atividade in atividades]
-        return JsonResponse(data, safe=False)
-
-
-class AtividadesDetail(AuthenticatedView):
-    def get(self, request, pk):
-        try:
-            atividade = Atividades.objects.select_related("Grupo").get(pk=pk)
-        except Atividades.DoesNotExist:
-            return json_error("Atividade not found", status=404)
-        if not is_group_member(request.profile, atividade.Grupo):
-            return json_error("Forbidden", status=403)
-        return JsonResponse(atividade_payload(atividade))
-
-
-class AtividadesCreate(AuthenticatedView):
-    def post(self, request):
-        data, error = get_request_data(request)
-        if error:
-            return error
-        missing = require_fields(data, ["nome", "data", "grupo_id"])
-        if missing:
-            return missing
-
-        grupo_id, parse_error = parse_int(data.get("grupo_id"), "grupo_id")
-        if parse_error:
-            return parse_error
-        data_atividade, parse_error = parse_datetime_value(data.get("data"), "data")
-        if parse_error:
-            return parse_error
-
-        try:
-            grupo = Grupos.objects.get(pk=grupo_id)
-        except Grupos.DoesNotExist:
-            return json_error("Grupo not found", status=404)
-        if not is_group_member(request.profile, grupo):
-            return json_error("Forbidden", status=403)
-
-        atividade = Atividades.objects.create(
-            nome=data.get("nome"),
-            descricao=data.get("descricao", ""),
-            data=data_atividade,
-            Grupo=grupo,
-        )
-        return JsonResponse(
-            {"message": "Atividade created successfully", "atividade_id": atividade.id},
-            status=201,
+        return Response(
+            MembroSerializer(membro, context={"request": request}).data,
+            status=status.HTTP_201_CREATED if created else status.HTTP_200_OK,
         )
 
+    @action(detail=True, methods=["post"], permission_classes=[IsAuthenticated])
+    def sair(self, request, pk=None):
+        igreja = self.get_object()
+        Membro.objects.filter(usuario=request.user, igreja=igreja).delete()
+        log_acao(request.user, "sair_igreja", "Igreja", igreja.id)
+        return Response({"detail": "Você saiu da igreja."})
 
-class AtividadesUpdate(AuthenticatedView):
-    def post(self, request, pk):
-        try:
-            atividade = Atividades.objects.select_related("Grupo").get(pk=pk)
-        except Atividades.DoesNotExist:
-            return json_error("Atividade not found", status=404)
-        if not is_group_member(request.profile, atividade.Grupo):
-            return json_error("Forbidden", status=403)
+    @action(detail=True, methods=["get"])
+    def membros(self, request, pk=None):
+        igreja = self.get_object()
+        qs = Membro.objects.filter(igreja=igreja).select_related("usuario", "usuario__profile")
+        status_filtro = request.query_params.get("status")
+        # Pendentes só para a liderança.
+        if not roles.eh_lideranca_igreja(request.user, igreja):
+            qs = qs.filter(status=StatusVinculo.ATIVO)
+        elif status_filtro:
+            qs = qs.filter(status=status_filtro)
+        qs = qs.order_by("status", "usuario__first_name")
+        return Response(
+            MembroSerializer(qs, many=True, context={"request": request}).data
+        )
 
-        data, error = get_request_data(request)
-        if error:
-            return error
-        if "nome" in data:
-            atividade.nome = data.get("nome") or atividade.nome
-        if "descricao" in data:
-            atividade.descricao = data.get("descricao") or ""
-        if "data" in data:
-            data_atividade, parse_error = parse_datetime_value(
-                data.get("data"), "data", required=False
-            )
-            if parse_error:
-                return parse_error
-            if data_atividade is not None:
-                atividade.data = data_atividade
-        atividade.save()
-        return JsonResponse({"message": "Atividade updated successfully"})
+    @action(detail=True, methods=["get"])
+    def grupos(self, request, pk=None):
+        igreja = self.get_object()
+        qs = Grupo.objects.filter(igreja=igreja, ativo=True)
+        return Response(
+            GrupoSerializer(qs, many=True, context={"request": request}).data
+        )
 
+    @action(detail=True, methods=["get"])
+    def salas(self, request, pk=None):
+        igreja = self.get_object()
+        qs = Sala.objects.filter(igreja=igreja, ativo=True)
+        return Response(SalaSerializer(qs, many=True).data)
 
-class AtividadesDelete(AuthenticatedView):
-    def post(self, request, pk):
-        try:
-            atividade = Atividades.objects.select_related("Grupo").get(pk=pk)
-        except Atividades.DoesNotExist:
-            return json_error("Atividade not found", status=404)
-        if not is_group_member(request.profile, atividade.Grupo):
-            return json_error("Forbidden", status=403)
-        atividade.delete()
-        return JsonResponse({"message": "Atividade deleted successfully"})
-
-
-class ComunicadosList(View):
-    def get(self, request):
-        comunicados = Comunicados.objects.select_related("igreja")
-        igreja_id, error = parse_int(request.GET.get("igreja_id"), "igreja_id", required=False)
-        if error:
-            return error
-        if igreja_id is not None:
-            comunicados = comunicados.filter(igreja_id=igreja_id)
-        data = [comunicado_payload(comunicado) for comunicado in comunicados]
-        return JsonResponse(data, safe=False)
-
-
-class ComunicadosDetail(View):
-    def get(self, request, pk):
-        try:
-            comunicado = Comunicados.objects.select_related("igreja").get(pk=pk)
-        except Comunicados.DoesNotExist:
-            return json_error("Comunicado not found", status=404)
-        return JsonResponse(comunicado_payload(comunicado))
-
-
-class ComunicadosCreate(StaffView):
-    def post(self, request):
-        data, error = get_request_data(request)
-        if error:
-            return error
-        missing = require_fields(data, ["titulo", "mensagem", "igreja_id"])
-        if missing:
-            return missing
-
-        igreja_id, parse_error = parse_int(data.get("igreja_id"), "igreja_id")
-        if parse_error:
-            return parse_error
-        try:
-            igreja = Igreja.objects.get(pk=igreja_id)
-        except Igreja.DoesNotExist:
-            return json_error("Igreja not found", status=404)
-
-        comunicado = Comunicados.objects.create(
-            titulo=data.get("titulo"),
-            mensagem=data.get("mensagem"),
+    @action(detail=True, methods=["get"])
+    def lideranca(self, request, pk=None):
+        igreja = self.get_object()
+        qs = Membro.objects.filter(
             igreja=igreja,
-        )
-        return JsonResponse(
-            {"message": "Comunicado created successfully", "comunicado_id": comunicado.id},
-            status=201,
-        )
-
-
-class ComunicadosUpdate(StaffView):
-    def post(self, request, pk):
-        try:
-            comunicado = Comunicados.objects.get(pk=pk)
-        except Comunicados.DoesNotExist:
-            return json_error("Comunicado not found", status=404)
-
-        data, error = get_request_data(request)
-        if error:
-            return error
-        if "titulo" in data:
-            comunicado.titulo = data.get("titulo") or comunicado.titulo
-        if "mensagem" in data:
-            comunicado.mensagem = data.get("mensagem") or comunicado.mensagem
-        comunicado.save()
-        return JsonResponse({"message": "Comunicado updated successfully"})
-
-
-class ComunicadosDelete(StaffView):
-    def post(self, request, pk):
-        try:
-            comunicado = Comunicados.objects.get(pk=pk)
-        except Comunicados.DoesNotExist:
-            return json_error("Comunicado not found", status=404)
-        comunicado.delete()
-        return JsonResponse({"message": "Comunicado deleted successfully"})
-
-
-class AvisosList(View):
-    def get(self, request):
-        avisos = Avisos.objects.select_related("igreja")
-        igreja_id, error = parse_int(request.GET.get("igreja_id"), "igreja_id", required=False)
-        if error:
-            return error
-        if igreja_id is not None:
-            avisos = avisos.filter(igreja_id=igreja_id)
-        data = [aviso_payload(aviso) for aviso in avisos]
-        return JsonResponse(data, safe=False)
-
-
-class AvisosDetail(View):
-    def get(self, request, pk):
-        try:
-            aviso = Avisos.objects.select_related("igreja").get(pk=pk)
-        except Avisos.DoesNotExist:
-            return json_error("Aviso not found", status=404)
-        return JsonResponse(aviso_payload(aviso))
-
-
-class AvisosCreate(StaffView):
-    def post(self, request):
-        data, error = get_request_data(request)
-        if error:
-            return error
-        missing = require_fields(data, ["titulo", "mensagem", "igreja_id"])
-        if missing:
-            return missing
-
-        igreja_id, parse_error = parse_int(data.get("igreja_id"), "igreja_id")
-        if parse_error:
-            return parse_error
-        try:
-            igreja = Igreja.objects.get(pk=igreja_id)
-        except Igreja.DoesNotExist:
-            return json_error("Igreja not found", status=404)
-
-        aviso = Avisos.objects.create(
-            titulo=data.get("titulo"),
-            mensagem=data.get("mensagem"),
-            igreja=igreja,
-        )
-        return JsonResponse({"message": "Aviso created successfully", "aviso_id": aviso.id}, status=201)
-
-
-class AvisosUpdate(StaffView):
-    def post(self, request, pk):
-        try:
-            aviso = Avisos.objects.get(pk=pk)
-        except Avisos.DoesNotExist:
-            return json_error("Aviso not found", status=404)
-
-        data, error = get_request_data(request)
-        if error:
-            return error
-        if "titulo" in data:
-            aviso.titulo = data.get("titulo") or aviso.titulo
-        if "mensagem" in data:
-            aviso.mensagem = data.get("mensagem") or aviso.mensagem
-        aviso.save()
-        return JsonResponse({"message": "Aviso updated successfully"})
-
-
-class AvisosDelete(StaffView):
-    def post(self, request, pk):
-        try:
-            aviso = Avisos.objects.get(pk=pk)
-        except Avisos.DoesNotExist:
-            return json_error("Aviso not found", status=404)
-        aviso.delete()
-        return JsonResponse({"message": "Aviso deleted successfully"})
-
-
-class NotificacoesGruposList(StaffView):
-    def get(self, request):
-        notificacoes = NotificacoesGrupos.objects.select_related("grupo", "perfil")
-        data = [notificacao_payload(notificacao) for notificacao in notificacoes]
-        return JsonResponse(data, safe=False)
-
-
-class NotificacoesGruposDetail(StaffView):
-    def get(self, request, pk):
-        try:
-            notificacao = NotificacoesGrupos.objects.select_related("grupo", "perfil").get(pk=pk)
-        except NotificacoesGrupos.DoesNotExist:
-            return json_error("Notificacao not found", status=404)
-        return JsonResponse(notificacao_payload(notificacao))
-
-
-class NotificacoesGruposCreate(StaffView):
-    def post(self, request):
-        data, error = get_request_data(request)
-        if error:
-            return error
-        missing = require_fields(data, ["perfil_id", "grupo_id", "mensagem"])
-        if missing:
-            return missing
-
-        perfil_id, parse_error = parse_int(data.get("perfil_id"), "perfil_id")
-        if parse_error:
-            return parse_error
-        grupo_id, parse_error = parse_int(data.get("grupo_id"), "grupo_id")
-        if parse_error:
-            return parse_error
-
-        try:
-            perfil = Profile.objects.get(pk=perfil_id)
-        except Profile.DoesNotExist:
-            return json_error("Perfil not found", status=404)
-        try:
-            grupo = Grupos.objects.get(pk=grupo_id)
-        except Grupos.DoesNotExist:
-            return json_error("Grupo not found", status=404)
-
-        notificacao = NotificacoesGrupos.objects.create(
-            perfil=perfil, grupo=grupo, mensagem=data.get("mensagem")
-        )
-        return JsonResponse(
-            {"message": "Notificacao created successfully", "notificacao_id": notificacao.id},
-            status=201,
+            status=StatusVinculo.ATIVO,
+            papel__in=[PapelIgreja.ANCIAO, PapelIgreja.PASTOR, PapelIgreja.ADMIN],
+        ).select_related("usuario", "usuario__profile")
+        return Response(
+            MembroSerializer(qs, many=True, context={"request": request}).data
         )
 
 
-class NotificacoesGruposUpdate(AuthenticatedView):
-    def post(self, request, pk):
-        try:
-            notificacao = NotificacoesGrupos.objects.select_related("perfil").get(pk=pk)
-        except NotificacoesGrupos.DoesNotExist:
-            return json_error("Notificacao not found", status=404)
-        if not has_staff_access(request.profile) and notificacao.perfil_id != request.profile.id:
-            return json_error("Forbidden", status=403)
+# --------------------------------------------------------------------------- #
+# Membro (gestão pela liderança)
+# --------------------------------------------------------------------------- #
+class MembroViewSet(viewsets.ModelViewSet):
+    serializer_class = MembroSerializer
+    permission_classes = [IsAuthenticated]
+    filterset_fields = ["igreja", "status", "papel"]
 
-        data, error = get_request_data(request)
-        if error:
-            return error
-        if "mensagem" in data and has_staff_access(request.profile):
-            notificacao.mensagem = data.get("mensagem") or notificacao.mensagem
-        if "lida" in data:
-            notificacao.lida = parse_bool(data.get("lida"))
-        notificacao.save()
-        return JsonResponse({"message": "Notificacao updated successfully"})
+    def get_queryset(self):
+        user = self.request.user
+        if roles.is_super(user):
+            return Membro.objects.select_related("usuario", "usuario__profile", "igreja")
+        # Liderança vê os membros das igrejas que administra; demais veem só os próprios.
+        igrejas = roles.igrejas_que_lidera_ids(user)
+        return Membro.objects.filter(
+            Q(igreja_id__in=igrejas) | Q(usuario=user)
+        ).select_related("usuario", "usuario__profile", "igreja")
 
+    def _exige_lideranca(self, membro):
+        return roles.eh_lideranca_igreja(self.request.user, membro.igreja)
 
-class NotificacoesGruposDelete(StaffView):
-    def post(self, request, pk):
-        try:
-            notificacao = NotificacoesGrupos.objects.get(pk=pk)
-        except NotificacoesGrupos.DoesNotExist:
-            return json_error("Notificacao not found", status=404)
-        notificacao.delete()
-        return JsonResponse({"message": "Notificacao deleted successfully"})
-
-
-class RecursosEducacionaisList(View):
-    def get(self, request):
-        recursos = RecursosEducacionais.objects.select_related("igreja")
-        igreja_id, error = parse_int(request.GET.get("igreja_id"), "igreja_id", required=False)
-        if error:
-            return error
-        if igreja_id is not None:
-            recursos = recursos.filter(igreja_id=igreja_id)
-        data = [recurso_payload(recurso) for recurso in recursos]
-        return JsonResponse(data, safe=False)
-
-
-class RecursosEducacionaisDetail(View):
-    def get(self, request, pk):
-        try:
-            recurso = RecursosEducacionais.objects.select_related("igreja").get(pk=pk)
-        except RecursosEducacionais.DoesNotExist:
-            return json_error("Recurso Educacional not found", status=404)
-        return JsonResponse(recurso_payload(recurso))
-
-
-class RecursosEducacionaisCreate(StaffView):
-    def post(self, request):
-        data, error = get_request_data(request)
-        if error:
-            return error
-        missing = require_fields(data, ["titulo", "igreja_id"])
-        if missing:
-            return missing
-        if not request.FILES.get("arquivo"):
-            return json_error("arquivo is required", status=400)
-
-        igreja_id, parse_error = parse_int(data.get("igreja_id"), "igreja_id")
-        if parse_error:
-            return parse_error
-        try:
-            igreja = Igreja.objects.get(pk=igreja_id)
-        except Igreja.DoesNotExist:
-            return json_error("Igreja not found", status=404)
-
-        recurso = RecursosEducacionais.objects.create(
-            titulo=data.get("titulo"),
-            descricao=data.get("descricao", ""),
-            arquivo=request.FILES["arquivo"],
-            igreja=igreja,
+    @action(detail=True, methods=["post"])
+    def aprovar(self, request, pk=None):
+        membro = self.get_object()
+        if not self._exige_lideranca(membro):
+            return Response({"detail": "Sem permissão."}, status=403)
+        membro.status = StatusVinculo.ATIVO
+        membro.aprovado_por = request.user
+        membro.save(update_fields=["status", "aprovado_por"])
+        log_acao(request.user, "aprovar_membro", "Membro", membro.id)
+        notificar(
+            membro.usuario,
+            "Entrada aprovada",
+            f"Você agora é membro de {membro.igreja.nome}.",
+            tipo="membro_aprovado",
+            link=f"/igreja/{membro.igreja_id}",
         )
-        return JsonResponse(
-            {"message": "Recurso Educacional created successfully", "recurso_id": recurso.id},
-            status=201,
+        return Response(MembroSerializer(membro, context={"request": request}).data)
+
+    @action(detail=True, methods=["post"])
+    def rejeitar(self, request, pk=None):
+        membro = self.get_object()
+        if not self._exige_lideranca(membro):
+            return Response({"detail": "Sem permissão."}, status=403)
+        membro.status = StatusVinculo.REJEITADO
+        membro.save(update_fields=["status"])
+        log_acao(request.user, "rejeitar_membro", "Membro", membro.id)
+        return Response(MembroSerializer(membro, context={"request": request}).data)
+
+    @action(detail=True, methods=["post"])
+    def definir_papel(self, request, pk=None):
+        membro = self.get_object()
+        if not self._exige_lideranca(membro):
+            return Response({"detail": "Sem permissão."}, status=403)
+        papel = request.data.get("papel")
+        if papel not in PapelIgreja.values:
+            return Response({"papel": "Papel inválido."}, status=400)
+        membro.papel = papel
+        if membro.status != StatusVinculo.ATIVO:
+            membro.status = StatusVinculo.ATIVO
+        membro.save(update_fields=["papel", "status"])
+        log_acao(request.user, "definir_papel", "Membro", membro.id, {"papel": papel})
+        notificar(
+            membro.usuario,
+            "Seu papel mudou",
+            f"Você agora é {membro.get_papel_display()} em {membro.igreja.nome}.",
+            tipo="papel",
+            link=f"/igreja/{membro.igreja_id}",
         )
+        return Response(MembroSerializer(membro, context={"request": request}).data)
 
 
-class RecursosEducacionaisUpdate(StaffView):
-    def post(self, request, pk):
-        try:
-            recurso = RecursosEducacionais.objects.get(pk=pk)
-        except RecursosEducacionais.DoesNotExist:
-            return json_error("Recurso Educacional not found", status=404)
+# --------------------------------------------------------------------------- #
+# Grupo
+# --------------------------------------------------------------------------- #
+class GrupoViewSet(viewsets.ModelViewSet):
+    serializer_class = GrupoSerializer
+    filterset_fields = ["igreja", "tipo", "ativo"]
+    search_fields = ["nome", "descricao"]
 
-        data, error = get_request_data(request)
-        if error:
-            return error
-        if "titulo" in data:
-            recurso.titulo = data.get("titulo") or recurso.titulo
-        if "descricao" in data:
-            recurso.descricao = data.get("descricao") or recurso.descricao
-        if request.FILES.get("arquivo"):
-            recurso.arquivo = request.FILES["arquivo"]
-        recurso.save()
-        return JsonResponse({"message": "Recurso Educacional updated successfully"})
+    def get_queryset(self):
+        qs = Grupo.objects.select_related("igreja")
+        if self.action == "list":
+            qs = qs.filter(ativo=True)
+        return qs
 
+    def get_permissions(self):
+        if self.action in ("list", "retrieve"):
+            return [AllowAny()]
+        return [IsAuthenticated()]
 
-class RecursosEducacionaisDelete(StaffView):
-    def post(self, request, pk):
-        try:
-            recurso = RecursosEducacionais.objects.get(pk=pk)
-        except RecursosEducacionais.DoesNotExist:
-            return json_error("Recurso Educacional not found", status=404)
-        recurso.delete()
-        return JsonResponse({"message": "Recurso Educacional deleted successfully"})
+    def perform_create(self, serializer):
+        igreja = serializer.validated_data["igreja"]
+        if not roles.eh_lideranca_igreja(self.request.user, igreja):
+            from rest_framework.exceptions import PermissionDenied
 
-
-class ArquivosIgrejaList(View):
-    def get(self, request):
-        arquivos = ArquivosIgreja.objects.select_related("igreja")
-        igreja_id, error = parse_int(request.GET.get("igreja_id"), "igreja_id", required=False)
-        if error:
-            return error
-        if igreja_id is not None:
-            arquivos = arquivos.filter(igreja_id=igreja_id)
-        data = [arquivo_payload(arquivo) for arquivo in arquivos]
-        return JsonResponse(data, safe=False)
-
-
-class ArquivosIgrejaDetail(View):
-    def get(self, request, pk):
-        try:
-            arquivo = ArquivosIgreja.objects.select_related("igreja").get(pk=pk)
-        except ArquivosIgreja.DoesNotExist:
-            return json_error("Arquivo Igreja not found", status=404)
-        return JsonResponse(arquivo_payload(arquivo))
-
-
-class ArquivosIgrejaCreate(StaffView):
-    def post(self, request):
-        data, error = get_request_data(request)
-        if error:
-            return error
-        missing = require_fields(data, ["nome_arquivo", "igreja_id"])
-        if missing:
-            return missing
-        if not request.FILES.get("arquivo"):
-            return json_error("arquivo is required", status=400)
-
-        igreja_id, parse_error = parse_int(data.get("igreja_id"), "igreja_id")
-        if parse_error:
-            return parse_error
-        try:
-            igreja = Igreja.objects.get(pk=igreja_id)
-        except Igreja.DoesNotExist:
-            return json_error("Igreja not found", status=404)
-
-        arquivo = ArquivosIgreja.objects.create(
-            igreja=igreja,
-            nome_arquivo=data.get("nome_arquivo"),
-            arquivo=request.FILES["arquivo"],
-        )
-        return JsonResponse(
-            {"message": "Arquivo Igreja created successfully", "arquivo_id": arquivo.id},
-            status=201,
-        )
-
-
-class ArquivosIgrejaUpdate(StaffView):
-    def post(self, request, pk):
-        try:
-            arquivo = ArquivosIgreja.objects.get(pk=pk)
-        except ArquivosIgreja.DoesNotExist:
-            return json_error("Arquivo Igreja not found", status=404)
-
-        data, error = get_request_data(request)
-        if error:
-            return error
-        if "nome_arquivo" in data:
-            arquivo.nome_arquivo = data.get("nome_arquivo") or arquivo.nome_arquivo
-        if request.FILES.get("arquivo"):
-            arquivo.arquivo = request.FILES["arquivo"]
-        arquivo.save()
-        return JsonResponse({"message": "Arquivo Igreja updated successfully"})
-
-
-class ArquivosIgrejaDelete(StaffView):
-    def post(self, request, pk):
-        try:
-            arquivo = ArquivosIgreja.objects.get(pk=pk)
-        except ArquivosIgreja.DoesNotExist:
-            return json_error("Arquivo Igreja not found", status=404)
-        arquivo.delete()
-        return JsonResponse({"message": "Arquivo Igreja deleted successfully"})
-
-
-class PostagensGruposList(AuthenticatedView):
-    def get(self, request):
-        postagens = PostagensGrupos.objects.select_related("autor__user", "grupo")
-        grupo_id, error = parse_int(request.GET.get("grupo_id"), "grupo_id", required=False)
-        if error:
-            return error
-        if grupo_id is not None:
-            postagens = postagens.filter(grupo_id=grupo_id)
-        if not has_staff_access(request.profile):
-            postagens = postagens.filter(
-                grupo_id__in=request.profile.grupos.values_list("id", flat=True)
-            )
-        data = [postagem_payload(postagem) for postagem in postagens]
-        return JsonResponse(data, safe=False)
-
-
-class PostagensGruposDetail(AuthenticatedView):
-    def get(self, request, pk):
-        try:
-            postagem = PostagensGrupos.objects.select_related("autor__user", "grupo").get(pk=pk)
-        except PostagensGrupos.DoesNotExist:
-            return json_error("Postagem not found", status=404)
-        if not is_group_member(request.profile, postagem.grupo):
-            return json_error("Forbidden", status=403)
-        return JsonResponse(postagem_payload(postagem))
-
-
-class PostagensGruposCreate(AuthenticatedView):
-    def post(self, request):
-        data, error = get_request_data(request)
-        if error:
-            return error
-        missing = require_fields(data, ["grupo_id"])
-        if missing:
-            return missing
-
-        grupo_id, parse_error = parse_int(data.get("grupo_id"), "grupo_id")
-        if parse_error:
-            return parse_error
-        try:
-            grupo = Grupos.objects.get(pk=grupo_id)
-        except Grupos.DoesNotExist:
-            return json_error("Grupo not found", status=404)
-        if not is_group_member(request.profile, grupo):
-            return json_error("Forbidden", status=403)
-
-        conteudo = data.get("conteudo", "")
-        enquete = data.get("enquete")
-        link = data.get("link")
-        arquivo = request.FILES.get("arquivo")
-        if not any([conteudo, enquete, link, arquivo]):
-            return json_error("Provide conteudo, enquete, link, or arquivo", status=400)
-
-        postagem = PostagensGrupos.objects.create(
-            autor=request.profile,
+            raise PermissionDenied("Apenas a liderança da igreja pode criar grupos.")
+        grupo = serializer.save()
+        # Quem cria já entra como diretor ativo.
+        GrupoMembro.objects.create(
+            usuario=self.request.user,
             grupo=grupo,
-            conteudo=conteudo,
-            arquivo=arquivo,
-            enquete=enquete,
-            link=link,
+            cargo=CargoGrupo.DIRETOR,
+            status=StatusVinculo.ATIVO,
         )
-        return JsonResponse(
-            {"message": "Postagem created successfully", "postagem_id": postagem.id},
-            status=201,
+        log_acao(self.request.user, "criar_grupo", "Grupo", grupo.id)
+
+    def update(self, request, *args, **kwargs):
+        grupo = self.get_object()
+        if not roles.eh_lideranca_grupo(request.user, grupo):
+            return Response({"detail": "Sem permissão."}, status=403)
+        return super().update(request, *args, **kwargs)
+
+    def destroy(self, request, *args, **kwargs):
+        grupo = self.get_object()
+        if not roles.eh_lideranca_igreja(request.user, grupo.igreja):
+            return Response({"detail": "Sem permissão."}, status=403)
+        return super().destroy(request, *args, **kwargs)
+
+    @action(detail=True, methods=["post"], permission_classes=[IsAuthenticated])
+    def entrar(self, request, pk=None):
+        grupo = self.get_object()
+        gm, created = GrupoMembro.objects.get_or_create(
+            usuario=request.user,
+            grupo=grupo,
+            defaults={"cargo": CargoGrupo.MEMBRO, "status": StatusVinculo.PENDENTE},
         )
-
-
-class PostagensGruposUpdate(AuthenticatedView):
-    def post(self, request, pk):
-        try:
-            postagem = PostagensGrupos.objects.select_related("grupo").get(pk=pk)
-        except PostagensGrupos.DoesNotExist:
-            return json_error("Postagem not found", status=404)
-        if postagem.autor_id != request.profile.id and not has_staff_access(request.profile):
-            return json_error("Forbidden", status=403)
-
-        data, error = get_request_data(request)
-        if error:
-            return error
-        if "conteudo" in data:
-            postagem.conteudo = data.get("conteudo") or postagem.conteudo
-        if "enquete" in data:
-            postagem.enquete = data.get("enquete")
-        if "link" in data:
-            postagem.link = data.get("link")
-        if request.FILES.get("arquivo"):
-            postagem.arquivo = request.FILES["arquivo"]
-        postagem.save()
-        return JsonResponse({"message": "Postagem updated successfully"})
-
-
-class PostagensGruposDelete(AuthenticatedView):
-    def post(self, request, pk):
-        try:
-            postagem = PostagensGrupos.objects.get(pk=pk)
-        except PostagensGrupos.DoesNotExist:
-            return json_error("Postagem not found", status=404)
-        if postagem.autor_id != request.profile.id and not has_staff_access(request.profile):
-            return json_error("Forbidden", status=403)
-        postagem.delete()
-        return JsonResponse({"message": "Postagem deleted successfully"})
-
-
-class ComentariosPostagensList(AuthenticatedView):
-    def get(self, request):
-        comentarios = ComentariosPostagens.objects.select_related("autor__user", "postagem__grupo")
-        postagem_id, error = parse_int(
-            request.GET.get("postagem_id"), "postagem_id", required=False
-        )
-        if error:
-            return error
-        if postagem_id is not None:
-            comentarios = comentarios.filter(postagem_id=postagem_id)
-            try:
-                postagem = PostagensGrupos.objects.select_related("grupo").get(pk=postagem_id)
-            except PostagensGrupos.DoesNotExist:
-                return json_error("Postagem not found", status=404)
-            if not is_group_member(request.profile, postagem.grupo):
-                return json_error("Forbidden", status=403)
-        elif not has_staff_access(request.profile):
-            comentarios = comentarios.filter(
-                postagem__grupo_id__in=request.profile.grupos.values_list("id", flat=True)
+        if not created and gm.status == StatusVinculo.REJEITADO:
+            gm.status = StatusVinculo.PENDENTE
+            gm.save(update_fields=["status"])
+        log_acao(request.user, "pedir_entrada_grupo", "Grupo", grupo.id)
+        for lider in GrupoMembro.objects.filter(
+            grupo=grupo,
+            status=StatusVinculo.ATIVO,
+            cargo__in=[CargoGrupo.LIDER, CargoGrupo.DIRETOR],
+        ).select_related("usuario"):
+            notificar(
+                lider.usuario,
+                "Novo pedido no grupo",
+                f"{request.user.get_full_name() or request.user.username} quer entrar em {grupo.nome}.",
+                tipo="grupo_pendente",
+                link=f"/grupo/{grupo.id}/membros",
             )
-        data = [comentario_payload(comentario) for comentario in comentarios]
-        return JsonResponse(data, safe=False)
-
-
-class ComentariosPostagensDetail(AuthenticatedView):
-    def get(self, request, pk):
-        try:
-            comentario = ComentariosPostagens.objects.select_related(
-                "autor__user", "postagem__grupo"
-            ).get(pk=pk)
-        except ComentariosPostagens.DoesNotExist:
-            return json_error("Comentario not found", status=404)
-        if not is_group_member(request.profile, comentario.postagem.grupo):
-            return json_error("Forbidden", status=403)
-        return JsonResponse(comentario_payload(comentario))
-
-
-class ComentariosPostagensCreate(AuthenticatedView):
-    def post(self, request):
-        data, error = get_request_data(request)
-        if error:
-            return error
-        missing = require_fields(data, ["postagem_id", "conteudo"])
-        if missing:
-            return missing
-
-        postagem_id, parse_error = parse_int(data.get("postagem_id"), "postagem_id")
-        if parse_error:
-            return parse_error
-        try:
-            postagem = PostagensGrupos.objects.select_related("grupo").get(pk=postagem_id)
-        except PostagensGrupos.DoesNotExist:
-            return json_error("Postagem not found", status=404)
-        if not is_group_member(request.profile, postagem.grupo):
-            return json_error("Forbidden", status=403)
-
-        comentario = ComentariosPostagens.objects.create(
-            postagem=postagem, autor=request.profile, conteudo=data.get("conteudo")
-        )
-        return JsonResponse(
-            {"message": "Comentario created successfully", "comentario_id": comentario.id},
-            status=201,
+        return Response(
+            GrupoMembroSerializer(gm, context={"request": request}).data,
+            status=status.HTTP_201_CREATED if created else status.HTTP_200_OK,
         )
 
+    @action(detail=True, methods=["post"], permission_classes=[IsAuthenticated])
+    def sair(self, request, pk=None):
+        grupo = self.get_object()
+        GrupoMembro.objects.filter(usuario=request.user, grupo=grupo).delete()
+        log_acao(request.user, "sair_grupo", "Grupo", grupo.id)
+        return Response({"detail": "Você saiu do grupo."})
 
-class ComentariosPostagensUpdate(AuthenticatedView):
-    def post(self, request, pk):
-        try:
-            comentario = ComentariosPostagens.objects.select_related("postagem__grupo").get(pk=pk)
-        except ComentariosPostagens.DoesNotExist:
-            return json_error("Comentario not found", status=404)
-        if comentario.autor_id != request.profile.id and not has_staff_access(request.profile):
-            return json_error("Forbidden", status=403)
+    @action(detail=True, methods=["get"])
+    def membros(self, request, pk=None):
+        grupo = self.get_object()
+        qs = GrupoMembro.objects.filter(grupo=grupo).select_related(
+            "usuario", "usuario__profile"
+        )
+        if not roles.eh_lideranca_grupo(request.user, grupo):
+            qs = qs.filter(status=StatusVinculo.ATIVO)
+        elif request.query_params.get("status"):
+            qs = qs.filter(status=request.query_params["status"])
+        qs = qs.order_by("status", "cargo")
+        return Response(
+            GrupoMembroSerializer(qs, many=True, context={"request": request}).data
+        )
 
-        data, error = get_request_data(request)
-        if error:
-            return error
-        if "conteudo" in data:
-            comentario.conteudo = data.get("conteudo") or comentario.conteudo
-        comentario.save()
-        return JsonResponse({"message": "Comentario updated successfully"})
+    @action(detail=True, methods=["get", "post"], permission_classes=[IsAuthenticated])
+    def mensagens(self, request, pk=None):
+        grupo = self.get_object()
+        if not (roles.eh_membro_grupo(request.user, grupo) or roles.eh_lideranca_grupo(request.user, grupo)):
+            return Response({"detail": "Só membros do grupo acessam o chat."}, status=403)
+        if request.method == "POST":
+            conteudo = (request.data.get("conteudo") or "").strip()
+            if not conteudo:
+                return Response({"conteudo": "Mensagem vazia."}, status=400)
+            msg = Mensagem.objects.create(
+                grupo=grupo, autor=request.user, conteudo=conteudo
+            )
+            return Response(
+                MensagemSerializer(msg, context={"request": request}).data,
+                status=status.HTTP_201_CREATED,
+            )
+        qs = Mensagem.objects.filter(grupo=grupo).select_related(
+            "autor", "autor__profile"
+        )
+        depois = request.query_params.get("depois_de")
+        if depois:
+            qs = qs.filter(id__gt=depois)
+        qs = qs.order_by("criado_em")[:200]
+        return Response(
+            MensagemSerializer(qs, many=True, context={"request": request}).data
+        )
 
 
-class ComentariosPostagensDelete(AuthenticatedView):
-    def post(self, request, pk):
-        try:
-            comentario = ComentariosPostagens.objects.get(pk=pk)
-        except ComentariosPostagens.DoesNotExist:
-            return json_error("Comentario not found", status=404)
-        if comentario.autor_id != request.profile.id and not has_staff_access(request.profile):
-            return json_error("Forbidden", status=403)
-        comentario.delete()
-        return JsonResponse({"message": "Comentario deleted successfully"})
+class GrupoMembroViewSet(viewsets.ModelViewSet):
+    serializer_class = GrupoMembroSerializer
+    permission_classes = [IsAuthenticated]
+    filterset_fields = ["grupo", "status", "cargo"]
+
+    def get_queryset(self):
+        user = self.request.user
+        if roles.is_super(user):
+            return GrupoMembro.objects.select_related("usuario", "grupo")
+        return GrupoMembro.objects.filter(
+            Q(usuario=user)
+            | Q(grupo__membros__usuario=user, grupo__membros__cargo__in=[CargoGrupo.LIDER, CargoGrupo.DIRETOR], grupo__membros__status=StatusVinculo.ATIVO)
+        ).select_related("usuario", "grupo").distinct()
+
+    @action(detail=True, methods=["post"])
+    def aprovar(self, request, pk=None):
+        gm = self.get_object()
+        if not roles.eh_lideranca_grupo(request.user, gm.grupo):
+            return Response({"detail": "Sem permissão."}, status=403)
+        gm.status = StatusVinculo.ATIVO
+        gm.save(update_fields=["status"])
+        log_acao(request.user, "aprovar_grupo_membro", "GrupoMembro", gm.id)
+        notificar(
+            gm.usuario,
+            "Entrada no grupo aprovada",
+            f"Você agora faz parte de {gm.grupo.nome}.",
+            tipo="grupo_aprovado",
+            link=f"/grupo/{gm.grupo_id}",
+        )
+        return Response(GrupoMembroSerializer(gm, context={"request": request}).data)
+
+    @action(detail=True, methods=["post"])
+    def rejeitar(self, request, pk=None):
+        gm = self.get_object()
+        if not roles.eh_lideranca_grupo(request.user, gm.grupo):
+            return Response({"detail": "Sem permissão."}, status=403)
+        gm.status = StatusVinculo.REJEITADO
+        gm.save(update_fields=["status"])
+        return Response(GrupoMembroSerializer(gm, context={"request": request}).data)
+
+    @action(detail=True, methods=["post"])
+    def definir_cargo(self, request, pk=None):
+        gm = self.get_object()
+        if not roles.eh_lideranca_grupo(request.user, gm.grupo):
+            return Response({"detail": "Sem permissão."}, status=403)
+        cargo = request.data.get("cargo")
+        if cargo not in CargoGrupo.values:
+            return Response({"cargo": "Cargo inválido."}, status=400)
+        gm.cargo = cargo
+        if gm.status != StatusVinculo.ATIVO:
+            gm.status = StatusVinculo.ATIVO
+        gm.save(update_fields=["cargo", "status"])
+        log_acao(request.user, "definir_cargo", "GrupoMembro", gm.id, {"cargo": cargo})
+        return Response(GrupoMembroSerializer(gm, context={"request": request}).data)
 
 
-class MensagensPrivadasList(AuthenticatedView):
+# --------------------------------------------------------------------------- #
+# Sala
+# --------------------------------------------------------------------------- #
+class SalaViewSet(viewsets.ModelViewSet):
+    serializer_class = SalaSerializer
+    filterset_fields = ["igreja", "ativo"]
+
+    def get_queryset(self):
+        return Sala.objects.select_related("igreja")
+
+    def get_permissions(self):
+        if self.action in ("list", "retrieve"):
+            return [AllowAny()]
+        return [IsAuthenticated()]
+
+    def _checar(self, igreja):
+        if not roles.eh_lideranca_igreja(self.request.user, igreja):
+            from rest_framework.exceptions import PermissionDenied
+
+            raise PermissionDenied("Apenas a liderança da igreja gerencia salas.")
+
+    def perform_create(self, serializer):
+        self._checar(serializer.validated_data["igreja"])
+        sala = serializer.save()
+        log_acao(self.request.user, "criar_sala", "Sala", sala.id)
+
+    def perform_update(self, serializer):
+        self._checar(serializer.instance.igreja)
+        serializer.save()
+
+    def perform_destroy(self, instance):
+        self._checar(instance.igreja)
+        instance.delete()
+
+
+# --------------------------------------------------------------------------- #
+# Evento
+# --------------------------------------------------------------------------- #
+class EventoViewSet(viewsets.ModelViewSet):
+    serializer_class = EventoSerializer
+    filterset_fields = ["igreja", "grupo", "status", "visibilidade"]
+    search_fields = ["titulo", "descricao"]
+    ordering_fields = ["inicio", "criado_em"]
+
+    def get_permissions(self):
+        if self.action in ("list", "retrieve", "participantes"):
+            return [AllowAny()]
+        return [IsAuthenticated()]
+
+    def get_queryset(self):
+        user = self.request.user
+        qs = Evento.objects.select_related(
+            "igreja", "grupo", "sala", "criado_por", "criado_por__profile"
+        ).prefetch_related("inscricoes")
+
+        # Base pública: eventos aprovados e públicos.
+        publico = Q(status=StatusEvento.APROVADO, visibilidade=VisibilidadeEvento.PUBLICO)
+
+        if not user.is_authenticated:
+            base = qs.filter(publico)
+        elif roles.is_super(user):
+            base = qs
+        else:
+            # Grupos onde o usuário é membro ativo (vê privados desses grupos).
+            grupos_ids = GrupoMembro.objects.filter(
+                usuario=user, status=StatusVinculo.ATIVO
+            ).values_list("grupo_id", flat=True)
+            # Igrejas que lidera (vê pendentes/rascunhos para aprovar).
+            igrejas_lidera = roles.igrejas_que_lidera_ids(user)
+            base = qs.filter(
+                publico
+                | Q(criado_por=user)
+                | Q(grupo_id__in=list(grupos_ids), status=StatusEvento.APROVADO)
+                | Q(igreja_id__in=igrejas_lidera)
+            ).distinct()
+
+        # Filtros de conveniência.
+        params = self.request.query_params
+        if params.get("proximos") in ("1", "true"):
+            base = base.filter(fim__gte=timezone.now())
+        de, ate = params.get("de"), params.get("ate")
+        if de:
+            base = base.filter(inicio__gte=de)
+        if ate:
+            base = base.filter(inicio__lte=ate)
+        if params.get("minhas") in ("1", "true") and user.is_authenticated:
+            base = base.filter(
+                Q(criado_por=user) | Q(inscricoes__usuario=user)
+            ).distinct()
+        return base
+
+    def perform_create(self, serializer):
+        igreja = serializer.validated_data["igreja"]
+        user = self.request.user
+        if not (roles.eh_membro(user, igreja) or roles.eh_lideranca_igreja(user, igreja)):
+            from rest_framework.exceptions import PermissionDenied
+
+            raise PermissionDenied(
+                "Você precisa ser membro da igreja para criar eventos."
+            )
+        # Liderança aprova direto; demais entram na fila de aprovação.
+        if roles.eh_lideranca_igreja(user, igreja):
+            novo_status = StatusEvento.APROVADO
+            aprovado_por = user
+        else:
+            novo_status = StatusEvento.PENDENTE
+            aprovado_por = None
+        evento = serializer.save(
+            criado_por=user, status=novo_status, aprovado_por=aprovado_por
+        )
+        log_acao(user, "criar_evento", "Evento", evento.id, {"status": novo_status})
+        if novo_status == StatusEvento.PENDENTE:
+            for lider in Membro.objects.filter(
+                igreja=igreja,
+                status=StatusVinculo.ATIVO,
+                papel__in=[PapelIgreja.ANCIAO, PapelIgreja.PASTOR, PapelIgreja.ADMIN],
+            ).select_related("usuario"):
+                notificar(
+                    lider.usuario,
+                    "Evento aguardando aprovação",
+                    f"“{evento.titulo}” precisa da sua aprovação.",
+                    tipo="evento_pendente",
+                    link=f"/aprovacoes",
+                )
+
+    def update(self, request, *args, **kwargs):
+        evento = self.get_object()
+        if not (evento.criado_por_id == request.user.id or roles.eh_lideranca_igreja(request.user, evento.igreja)):
+            return Response({"detail": "Sem permissão."}, status=403)
+        return super().update(request, *args, **kwargs)
+
+    def destroy(self, request, *args, **kwargs):
+        evento = self.get_object()
+        if not (evento.criado_por_id == request.user.id or roles.eh_lideranca_igreja(request.user, evento.igreja)):
+            return Response({"detail": "Sem permissão."}, status=403)
+        return super().destroy(request, *args, **kwargs)
+
+    # --- workflow de aprovação ---
+    @action(detail=True, methods=["post"])
+    def aprovar(self, request, pk=None):
+        evento = self.get_object()
+        if not roles.eh_lideranca_igreja(request.user, evento.igreja):
+            return Response({"detail": "Sem permissão."}, status=403)
+        evento.status = StatusEvento.APROVADO
+        evento.aprovado_por = request.user
+        evento.motivo_rejeicao = ""
+        evento.save(update_fields=["status", "aprovado_por", "motivo_rejeicao"])
+        log_acao(request.user, "aprovar_evento", "Evento", evento.id)
+        notificar(
+            evento.criado_por,
+            "Evento aprovado",
+            f"“{evento.titulo}” foi aprovado.",
+            tipo="evento_aprovado",
+            link=f"/evento/{evento.id}",
+        )
+        return Response(EventoSerializer(evento, context={"request": request}).data)
+
+    @action(detail=True, methods=["post"])
+    def rejeitar(self, request, pk=None):
+        evento = self.get_object()
+        if not roles.eh_lideranca_igreja(request.user, evento.igreja):
+            return Response({"detail": "Sem permissão."}, status=403)
+        evento.status = StatusEvento.REJEITADO
+        evento.motivo_rejeicao = request.data.get("motivo", "")
+        evento.save(update_fields=["status", "motivo_rejeicao"])
+        log_acao(request.user, "rejeitar_evento", "Evento", evento.id)
+        notificar(
+            evento.criado_por,
+            "Evento não aprovado",
+            f"“{evento.titulo}”: {evento.motivo_rejeicao or 'sem motivo informado'}.",
+            tipo="evento_rejeitado",
+            link=f"/evento/{evento.id}",
+        )
+        return Response(EventoSerializer(evento, context={"request": request}).data)
+
+    @action(detail=True, methods=["post"], permission_classes=[IsAuthenticated])
+    def cancelar(self, request, pk=None):
+        evento = self.get_object()
+        if not (evento.criado_por_id == request.user.id or roles.eh_lideranca_igreja(request.user, evento.igreja)):
+            return Response({"detail": "Sem permissão."}, status=403)
+        evento.status = StatusEvento.CANCELADO
+        evento.save(update_fields=["status"])
+        log_acao(request.user, "cancelar_evento", "Evento", evento.id)
+        return Response(EventoSerializer(evento, context={"request": request}).data)
+
+    @action(detail=False, methods=["get"], permission_classes=[IsAuthenticated])
+    def pendentes(self, request):
+        """Caixa de aprovação: eventos pendentes nas igrejas que o usuário lidera."""
+        igrejas = roles.igrejas_que_lidera_ids(request.user)
+        qs = Evento.objects.filter(
+            igreja_id__in=igrejas, status=StatusEvento.PENDENTE
+        ).select_related("igreja", "grupo", "criado_por", "criado_por__profile").order_by("inicio")
+        return Response(
+            EventoSerializer(qs, many=True, context={"request": request}).data
+        )
+
+    # --- RSVP ---
+    @action(detail=True, methods=["post"], permission_classes=[IsAuthenticated])
+    def rsvp(self, request, pk=None):
+        evento = self.get_object()
+        novo = request.data.get("status", StatusInscricao.CONFIRMADO)
+        if novo not in StatusInscricao.values:
+            return Response({"status": "Status inválido."}, status=400)
+        insc, _ = Inscricao.objects.update_or_create(
+            usuario=request.user, evento=evento, defaults={"status": novo}
+        )
+        log_acao(request.user, "rsvp", "Evento", evento.id, {"status": novo})
+        return Response(InscricaoSerializer(insc, context={"request": request}).data)
+
+    @action(detail=True, methods=["get"])
+    def participantes(self, request, pk=None):
+        evento = self.get_object()
+        qs = Inscricao.objects.filter(
+            evento=evento, status=StatusInscricao.CONFIRMADO
+        ).select_related("usuario", "usuario__profile")
+        return Response(
+            InscricaoSerializer(qs, many=True, context={"request": request}).data
+        )
+
+
+# --------------------------------------------------------------------------- #
+# Pauta + Voto (deliberação dos anciões)
+# --------------------------------------------------------------------------- #
+class PautaViewSet(viewsets.ModelViewSet):
+    serializer_class = PautaSerializer
+    permission_classes = [IsAuthenticated]
+    filterset_fields = ["igreja", "status"]
+
+    def get_queryset(self):
+        user = self.request.user
+        if roles.is_super(user):
+            return Pauta.objects.select_related("igreja", "criada_por").prefetch_related("votos")
+        igrejas = roles.igrejas_que_lidera_ids(user)
+        return (
+            Pauta.objects.filter(igreja_id__in=igrejas)
+            .select_related("igreja", "criada_por")
+            .prefetch_related("votos")
+        )
+
+    def perform_create(self, serializer):
+        igreja = serializer.validated_data["igreja"]
+        if not roles.eh_lideranca_igreja(self.request.user, igreja):
+            from rest_framework.exceptions import PermissionDenied
+
+            raise PermissionDenied("Apenas anciões/liderança criam pautas.")
+        pauta = serializer.save(criada_por=self.request.user)
+        log_acao(self.request.user, "criar_pauta", "Pauta", pauta.id)
+
+    def update(self, request, *args, **kwargs):
+        pauta = self.get_object()
+        if not roles.eh_lideranca_igreja(request.user, pauta.igreja):
+            return Response({"detail": "Sem permissão."}, status=403)
+        return super().update(request, *args, **kwargs)
+
+    @action(detail=True, methods=["post"])
+    def votar(self, request, pk=None):
+        pauta = self.get_object()
+        if not roles.eh_lideranca_igreja(request.user, pauta.igreja):
+            return Response(
+                {"detail": "Apenas a liderança vota nas pautas."}, status=403
+            )
+        if pauta.status == StatusPauta.ENCERRADA or pauta.expirada:
+            return Response({"detail": "Votação encerrada."}, status=400)
+        opcao = request.data.get("opcao")
+        if opcao not in OpcaoVoto.values:
+            return Response({"opcao": "Opção inválida."}, status=400)
+        voto, _ = Voto.objects.update_or_create(
+            pauta=pauta,
+            usuario=request.user,
+            defaults={
+                "opcao": opcao,
+                "comentario": request.data.get("comentario", ""),
+            },
+        )
+        log_acao(request.user, "votar", "Pauta", pauta.id)
+        return Response(VotoSerializer(voto, context={"request": request}).data)
+
+    @action(detail=True, methods=["post"])
+    def encerrar(self, request, pk=None):
+        pauta = self.get_object()
+        if not roles.eh_lideranca_igreja(request.user, pauta.igreja):
+            return Response({"detail": "Sem permissão."}, status=403)
+        pauta.status = StatusPauta.ENCERRADA
+        pauta.save(update_fields=["status"])
+        log_acao(request.user, "encerrar_pauta", "Pauta", pauta.id)
+        return Response(PautaSerializer(pauta, context={"request": request}).data)
+
+    @action(detail=True, methods=["get"])
+    def votos(self, request, pk=None):
+        pauta = self.get_object()
+        if not roles.eh_lideranca_igreja(request.user, pauta.igreja):
+            return Response({"detail": "Sem permissão."}, status=403)
+        qs = pauta.votos.select_related("usuario", "usuario__profile")
+        return Response(VotoSerializer(qs, many=True, context={"request": request}).data)
+
+
+# --------------------------------------------------------------------------- #
+# Notificações
+# --------------------------------------------------------------------------- #
+class NotificacaoViewSet(viewsets.ReadOnlyModelViewSet):
+    serializer_class = NotificacaoSerializer
+    permission_classes = [IsAuthenticated]
+
+    def get_queryset(self):
+        return Notificacao.objects.filter(usuario=self.request.user)
+
+    @action(detail=True, methods=["post"])
+    def ler(self, request, pk=None):
+        notif = self.get_object()
+        notif.lida = True
+        notif.save(update_fields=["lida"])
+        return Response(NotificacaoSerializer(notif).data)
+
+    @action(detail=False, methods=["post"])
+    def ler_todas(self, request):
+        Notificacao.objects.filter(usuario=request.user, lida=False).update(lida=True)
+        return Response({"detail": "Todas marcadas como lidas."})
+
+    @action(detail=False, methods=["get"])
+    def nao_lidas(self, request):
+        total = Notificacao.objects.filter(usuario=request.user, lida=False).count()
+        return Response({"total": total})
+
+
+# --------------------------------------------------------------------------- #
+# Auditoria (super admin)
+# --------------------------------------------------------------------------- #
+class AuditLogViewSet(viewsets.ReadOnlyModelViewSet):
+    serializer_class = AuditLogSerializer
+    permission_classes = [IsSuperAdmin]
+    filterset_fields = ["entidade", "acao"]
+
+    def get_queryset(self):
+        return AuditLog.objects.select_related("usuario", "usuario__profile")
+
+
+# --------------------------------------------------------------------------- #
+# Calendário consolidado (com expansão de recorrências)
+# --------------------------------------------------------------------------- #
+class CalendarioView(APIView):
+    permission_classes = [AllowAny]
+
+    LIMITE_OCORRENCIAS = 60
+
     def get(self, request):
-        kind = request.GET.get("kind", "todas")
-        mensagens = MensagensPrivadas.objects.select_related("remetente__user", "destinatario__user").filter(
-            Q(remetente=request.profile) | Q(destinatario=request.profile)
+        de = request.query_params.get("de")
+        ate = request.query_params.get("ate")
+        agora = timezone.now()
+        inicio_janela = de or (agora - timedelta(days=1)).isoformat()
+        fim_janela = ate or (agora + timedelta(days=90)).isoformat()
+
+        # Reusa a lógica de visibilidade do EventoViewSet.
+        vs = EventoViewSet()
+        vs.request = request
+        vs.action = "list"
+        vs.format_kwarg = None
+        qs = vs.get_queryset().filter(status=StatusEvento.APROVADO)
+
+        if request.query_params.get("igreja"):
+            qs = qs.filter(igreja_id=request.query_params["igreja"])
+        if request.query_params.get("grupo"):
+            qs = qs.filter(grupo_id=request.query_params["grupo"])
+
+        ocorrencias = []
+        for ev in qs:
+            ocorrencias.extend(
+                self._expandir(ev, inicio_janela, fim_janela, request)
+            )
+        ocorrencias.sort(key=lambda o: o["inicio"])
+        return Response(ocorrencias)
+
+    def _expandir(self, ev, de, ate, request):
+        base = EventoSerializer(ev, context={"request": request}).data
+        from django.utils.dateparse import parse_datetime
+
+        de_dt = parse_datetime(de)
+        ate_dt = parse_datetime(ate)
+        if de_dt and timezone.is_naive(de_dt):
+            de_dt = timezone.make_aware(de_dt)
+        if ate_dt and timezone.is_naive(ate_dt):
+            ate_dt = timezone.make_aware(ate_dt)
+
+        duracao = ev.fim - ev.inicio
+        if ev.recorrencia == Recorrencia.NENHUMA:
+            return [self._ocorrencia(base, ev.inicio, ev.fim)]
+
+        passo = {
+            Recorrencia.DIARIA: timedelta(days=1),
+            Recorrencia.SEMANAL: timedelta(weeks=1),
+            Recorrencia.MENSAL: timedelta(days=30),
+        }[ev.recorrencia]
+
+        limite_fim = ate_dt
+        if ev.recorrencia_ate:
+            fim_recorr = timezone.make_aware(
+                timezone.datetime.combine(ev.recorrencia_ate, timezone.datetime.min.time())
+            )
+            if limite_fim is None or fim_recorr < limite_fim:
+                limite_fim = fim_recorr
+
+        ocorrencias = []
+        cursor = ev.inicio
+        n = 0
+        while n < self.LIMITE_OCORRENCIAS:
+            if limite_fim and cursor > limite_fim:
+                break
+            if de_dt is None or (cursor + duracao) >= de_dt:
+                ocorrencias.append(self._ocorrencia(base, cursor, cursor + duracao))
+            cursor = cursor + passo
+            n += 1
+            if ate_dt and cursor > ate_dt:
+                break
+        return ocorrencias
+
+    @staticmethod
+    def _ocorrencia(base, inicio, fim):
+        item = dict(base)
+        item["inicio"] = inicio.isoformat()
+        item["fim"] = fim.isoformat()
+        return item
+
+
+# --------------------------------------------------------------------------- #
+# Dashboard (agregador para a tela inicial)
+# --------------------------------------------------------------------------- #
+@api_view(["GET"])
+@permission_classes([IsAuthenticated])
+def dashboard(request):
+    user = request.user
+    agora = timezone.now()
+    profile = user.profile
+
+    # Próximos eventos da igreja principal (ou de todas as minhas igrejas).
+    minhas_igrejas = list(
+        Membro.objects.filter(usuario=user, status=StatusVinculo.ATIVO).values_list(
+            "igreja_id", flat=True
         )
-        if kind == "enviadas":
-            mensagens = mensagens.filter(remetente=request.profile)
-        elif kind == "recebidas":
-            mensagens = mensagens.filter(destinatario=request.profile)
-        data = [mensagem_payload(mensagem) for mensagem in mensagens]
-        return JsonResponse(data, safe=False)
-
-
-class MensagensPrivadasDetail(AuthenticatedView):
-    def get(self, request, pk):
-        try:
-            mensagem = MensagensPrivadas.objects.select_related(
-                "remetente__user", "destinatario__user"
-            ).get(pk=pk)
-        except MensagensPrivadas.DoesNotExist:
-            return json_error("Mensagem not found", status=404)
-        if (
-            mensagem.remetente_id != request.profile.id
-            and mensagem.destinatario_id != request.profile.id
-            and not has_staff_access(request.profile)
-        ):
-            return json_error("Forbidden", status=403)
-        return JsonResponse(mensagem_payload(mensagem))
-
-
-class MensagensPrivadasCreate(AuthenticatedView):
-    def post(self, request):
-        data, error = get_request_data(request)
-        if error:
-            return error
-        missing = require_fields(data, ["destinatario_id", "conteudo"])
-        if missing:
-            return missing
-
-        destinatario_id, parse_error = parse_int(data.get("destinatario_id"), "destinatario_id")
-        if parse_error:
-            return parse_error
-        if destinatario_id == request.profile.id:
-            return json_error("destinatario_id must be different", status=400)
-        try:
-            destinatario = Profile.objects.get(pk=destinatario_id)
-        except Profile.DoesNotExist:
-            return json_error("Destinatario not found", status=404)
-
-        mensagem = MensagensPrivadas.objects.create(
-            remetente=request.profile,
-            destinatario=destinatario,
-            conteudo=data.get("conteudo"),
+    )
+    eventos_minha_igreja = (
+        Evento.objects.filter(
+            igreja_id__in=minhas_igrejas or [0],
+            status=StatusEvento.APROVADO,
+            fim__gte=agora,
         )
-        return JsonResponse(
-            {"message": "Mensagem created successfully", "mensagem_id": mensagem.id}, status=201
+        .select_related("igreja", "grupo")
+        .order_by("inicio")[:8]
+    )
+
+    # Eventos próximos em outras igrejas (por distância, se houver geo).
+    outras = (
+        Evento.objects.filter(status=StatusEvento.APROVADO, fim__gte=agora)
+        .exclude(igreja_id__in=minhas_igrejas)
+        .filter(visibilidade=VisibilidadeEvento.PUBLICO)
+        .select_related("igreja", "grupo")
+        .order_by("inicio")[:30]
+    )
+    outras_list = list(outras)
+    if profile.latitude is not None and profile.longitude is not None:
+        for ev in outras_list:
+            ev.igreja.distancia_km = (
+                haversine_km(
+                    profile.latitude,
+                    profile.longitude,
+                    ev.igreja.latitude,
+                    ev.igreja.longitude,
+                )
+                if ev.igreja.latitude is not None
+                else None
+            )
+        outras_list.sort(
+            key=lambda e: (
+                getattr(e.igreja, "distancia_km", None) is None,
+                getattr(e.igreja, "distancia_km", None) or 0,
+            )
         )
+    outras_list = outras_list[:8]
 
+    # Pendências de aprovação (liderança).
+    igrejas_lidera = roles.igrejas_que_lidera_ids(user)
+    eventos_pendentes = Evento.objects.filter(
+        igreja_id__in=igrejas_lidera, status=StatusEvento.PENDENTE
+    ).count()
+    membros_pendentes = Membro.objects.filter(
+        igreja_id__in=igrejas_lidera, status=StatusVinculo.PENDENTE
+    ).count()
+    pautas_abertas = Pauta.objects.filter(
+        igreja_id__in=igrejas_lidera, status=StatusPauta.ABERTA
+    ).count()
 
-class MensagensPrivadasUpdate(AuthenticatedView):
-    def post(self, request, pk):
-        try:
-            mensagem = MensagensPrivadas.objects.get(pk=pk)
-        except MensagensPrivadas.DoesNotExist:
-            return json_error("Mensagem not found", status=404)
-        if (
-            mensagem.remetente_id != request.profile.id
-            and mensagem.destinatario_id != request.profile.id
-            and not has_staff_access(request.profile)
-        ):
-            return json_error("Forbidden", status=403)
-
-        data, error = get_request_data(request)
-        if error:
-            return error
-        if "conteudo" in data:
-            if mensagem.remetente_id != request.profile.id and not has_staff_access(request.profile):
-                return json_error("Forbidden", status=403)
-            mensagem.conteudo = data.get("conteudo") or mensagem.conteudo
-        if "lida" in data:
-            if mensagem.destinatario_id != request.profile.id and not has_staff_access(request.profile):
-                return json_error("Forbidden", status=403)
-            mensagem.lida = parse_bool(data.get("lida"))
-        mensagem.save()
-        return JsonResponse({"message": "Mensagem updated successfully"})
-
-
-class MensagensPrivadasDelete(AuthenticatedView):
-    def post(self, request, pk):
-        try:
-            mensagem = MensagensPrivadas.objects.get(pk=pk)
-        except MensagensPrivadas.DoesNotExist:
-            return json_error("Mensagem not found", status=404)
-        if (
-            mensagem.remetente_id != request.profile.id
-            and mensagem.destinatario_id != request.profile.id
-            and not has_staff_access(request.profile)
-        ):
-            return json_error("Forbidden", status=403)
-        mensagem.delete()
-        return JsonResponse({"message": "Mensagem deleted successfully"})
+    ctx = {"request": request}
+    return Response(
+        {
+            "eventos_minha_igreja": EventoSerializer(
+                eventos_minha_igreja, many=True, context=ctx
+            ).data,
+            "eventos_proximos": EventoSerializer(
+                outras_list, many=True, context=ctx
+            ).data,
+            "pendencias": {
+                "eventos": eventos_pendentes,
+                "membros": membros_pendentes,
+                "pautas_abertas": pautas_abertas,
+            },
+            "sou_lideranca": len(igrejas_lidera) > 0,
+        }
+    )
