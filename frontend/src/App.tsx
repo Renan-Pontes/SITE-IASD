@@ -21,6 +21,8 @@ import Aprovacoes from "./pages/Aprovacoes";
 import Notificacoes from "./pages/Notificacoes";
 import Perfil from "./pages/Perfil";
 import AdminIgreja from "./pages/AdminIgreja";
+import SuperAdmin from "./pages/SuperAdmin";
+import Auditoria from "./pages/Auditoria";
 
 function RequireAuth({ children }: { children: ReactNode }) {
   const { logado, carregando } = useAuth();
@@ -61,6 +63,8 @@ export default function App() {
         <Route path="/notificacoes" element={<RequireAuth><Notificacoes /></RequireAuth>} />
         <Route path="/perfil" element={<RequireAuth><Perfil /></RequireAuth>} />
         <Route path="/admin/igreja/:id" element={<RequireAuth><AdminIgreja /></RequireAuth>} />
+        <Route path="/super" element={<RequireAuth><SuperAdmin /></RequireAuth>} />
+        <Route path="/auditoria" element={<RequireAuth><Auditoria /></RequireAuth>} />
       </Route>
 
       <Route path="*" element={<Navigate to="/" replace />} />

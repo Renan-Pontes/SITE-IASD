@@ -84,6 +84,14 @@ export default function Perfil() {
         </div>
       </Card>
 
+      {ehSuper && (
+        <Link to="/super">
+          <Botao variante="secondary" full>
+            <ShieldCheck size={18} /> Administração geral
+          </Botao>
+        </Link>
+      )}
+
       {/* Minhas igrejas */}
       {ativos.length > 0 && (
         <section>

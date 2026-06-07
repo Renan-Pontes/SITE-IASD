@@ -176,7 +176,12 @@ class IgrejaViewSet(viewsets.ModelViewSet):
     def get_queryset(self):
         qs = Igreja.objects.all()
         if self.action == "list":
-            qs = qs.filter(ativo=True)
+            ver_todas = (
+                self.request.query_params.get("todas") == "1"
+                and roles.is_super(self.request.user)
+            )
+            if not ver_todas:
+                qs = qs.filter(ativo=True)
         return qs
 
     def get_permissions(self):
@@ -203,6 +208,27 @@ class IgrejaViewSet(viewsets.ModelViewSet):
     def perform_create(self, serializer):
         igreja = serializer.save()
         log_acao(self.request.user, "criar_igreja", "Igreja", igreja.id)
+        # Opcional: define um ancião responsável pelo e-mail informado.
+        email = (self.request.data.get("anciao_email") or "").strip().lower()
+        if email:
+            user = User.objects.filter(email__iexact=email).first()
+            if user:
+                Membro.objects.update_or_create(
+                    usuario=user,
+                    igreja=igreja,
+                    defaults={
+                        "papel": PapelIgreja.ANCIAO,
+                        "status": StatusVinculo.ATIVO,
+                        "aprovado_por": self.request.user,
+                    },
+                )
+                notificar(
+                    user,
+                    "Você foi definido como ancião",
+                    f"Você é ancião responsável de {igreja.nome}.",
+                    tipo="papel",
+                    link=f"/igreja/{igreja.id}",
+                )
 
     def list(self, request, *args, **kwargs):
         """Lista com ordenação opcional por proximidade (?lat=&lng=)."""
