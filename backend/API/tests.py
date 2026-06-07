@@ -9,6 +9,7 @@ e regras de visibilidade de eventos.
 from datetime import timedelta
 
 from django.contrib.auth import get_user_model
+from django.core.management import call_command
 from django.test import TestCase
 from django.utils import timezone
 from rest_framework.test import APIClient
@@ -264,6 +265,47 @@ class PautaVotacaoTests(TestCase):
         resp = lider.get(f"/api/pautas/{pauta.id}/votos/")
         self.assertEqual(resp.status_code, 200)
         self.assertIsNotNone(resp.data[0]["usuario_detalhe"])
+
+
+class QuorumTests(TestCase):
+    def setUp(self):
+        self.igreja = Igreja.objects.create(nome="IASD Quorum", cidade="SP", estado="SP")
+        self.anciao = cria_user("anciao@iasd.app", "Jose Anciao")
+        Membro.objects.create(usuario=self.anciao, igreja=self.igreja, papel=PapelIgreja.ANCIAO, status=StatusVinculo.ATIVO)
+        self.pastor = cria_user("pastor@iasd.app", "Paulo Pastor")
+        Membro.objects.create(usuario=self.pastor, igreja=self.igreja, papel=PapelIgreja.PASTOR, status=StatusVinculo.ATIVO)
+
+    def test_quorum_encerra_ao_atingir(self):
+        pauta = Pauta.objects.create(
+            titulo="Q", igreja=self.igreja, criada_por=self.anciao, quorum_minimo=2,
+        )
+        a = APIClient(); autentica(a, "anciao@iasd.app")
+        p = APIClient(); autentica(p, "pastor@iasd.app")
+
+        a.post(f"/api/pautas/{pauta.id}/votar/", {"opcao": "sim"}, format="json")
+        pauta.refresh_from_db()
+        self.assertEqual(pauta.status, "aberta")  # 1 voto, quórum 2
+
+        p.post(f"/api/pautas/{pauta.id}/votar/", {"opcao": "nao"}, format="json")
+        pauta.refresh_from_db()
+        self.assertEqual(pauta.status, "encerrada")  # 2 votos -> fecha
+
+        # Terceiro voto já é barrado.
+        outro = cria_user("m@iasd.app")
+        Membro.objects.create(usuario=outro, igreja=self.igreja, papel=PapelIgreja.ANCIAO, status=StatusVinculo.ATIVO)
+        c = APIClient(); autentica(c, "m@iasd.app")
+        resp = c.post(f"/api/pautas/{pauta.id}/votar/", {"opcao": "sim"}, format="json")
+        self.assertEqual(resp.status_code, 400)
+
+    def test_command_fecha_pauta_expirada(self):
+        passado = timezone.now() - timedelta(hours=1)
+        pauta = Pauta.objects.create(
+            titulo="Expirada", igreja=self.igreja, criada_por=self.anciao,
+            prazo_votacao=passado,
+        )
+        call_command("fechar_pautas")
+        pauta.refresh_from_db()
+        self.assertEqual(pauta.status, "encerrada")
 
 
 class GrupoChatTests(TestCase):

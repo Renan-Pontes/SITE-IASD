@@ -456,6 +456,7 @@ class PautaSerializer(serializers.ModelSerializer):
     meu_voto = serializers.SerializerMethodField()
     total_votos = serializers.SerializerMethodField()
     expirada = serializers.BooleanField(read_only=True)
+    quorum_atingido = serializers.BooleanField(read_only=True)
 
     class Meta:
         model = Pauta
@@ -469,6 +470,8 @@ class PautaSerializer(serializers.ModelSerializer):
             "criada_por_detalhe",
             "anonima",
             "prazo_votacao",
+            "quorum_minimo",
+            "quorum_atingido",
             "status",
             "resultado",
             "meu_voto",

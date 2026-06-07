@@ -121,6 +121,7 @@ function CriarPauta({
     igreja: igrejas[0]?.igreja ? String(igrejas[0].igreja) : "",
     anonima: false,
     prazo: "",
+    quorum: "",
   });
   const [salvando, setSalvando] = useState(false);
 
@@ -137,6 +138,7 @@ function CriarPauta({
         igreja: Number(form.igreja),
         anonima: form.anonima,
         prazo_votacao: form.prazo ? new Date(form.prazo).toISOString() : null,
+        quorum_minimo: form.quorum ? Number(form.quorum) : null,
       });
       aoCriar();
     } catch (err) {
@@ -190,14 +192,26 @@ function CriarPauta({
             ))}
           </select>
         </Campo>
-        <Campo label="Prazo da votação (opcional)">
-          <input
-            type="datetime-local"
-            className="input"
-            value={form.prazo}
-            onChange={(e) => setForm({ ...form, prazo: e.target.value })}
-          />
-        </Campo>
+        <div className="grid grid-cols-2 gap-3">
+          <Campo label="Prazo (opcional)">
+            <input
+              type="datetime-local"
+              className="input"
+              value={form.prazo}
+              onChange={(e) => setForm({ ...form, prazo: e.target.value })}
+            />
+          </Campo>
+          <Campo label="Quórum (opcional)" dica="Fecha sozinha ao atingir.">
+            <input
+              type="number"
+              min={1}
+              className="input"
+              placeholder="Ex.: 5"
+              value={form.quorum}
+              onChange={(e) => setForm({ ...form, quorum: e.target.value })}
+            />
+          </Campo>
+        </div>
         <label className="flex items-center gap-3 rounded-xl bg-slate-50 p-3">
           <input
             type="checkbox"

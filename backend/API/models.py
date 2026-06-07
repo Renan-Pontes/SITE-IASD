@@ -487,6 +487,11 @@ class Pauta(models.Model):
         default=False, help_text="Se marcado, os votos não revelam quem votou."
     )
     prazo_votacao = models.DateTimeField(null=True, blank=True)
+    quorum_minimo = models.PositiveIntegerField(
+        null=True,
+        blank=True,
+        help_text="Nº mínimo de votos para encerrar a pauta automaticamente.",
+    )
     status = models.CharField(
         max_length=10, choices=StatusPauta.choices, default=StatusPauta.ABERTA
     )
@@ -501,6 +506,20 @@ class Pauta(models.Model):
     @property
     def expirada(self):
         return bool(self.prazo_votacao and self.prazo_votacao < timezone.now())
+
+    @property
+    def quorum_atingido(self):
+        return bool(self.quorum_minimo and self.votos.count() >= self.quorum_minimo)
+
+    def fechar_se_necessario(self):
+        """Encerra a pauta se o quórum foi atingido ou o prazo expirou."""
+        if self.status != StatusPauta.ABERTA:
+            return False
+        if self.quorum_atingido or self.expirada:
+            self.status = StatusPauta.ENCERRADA
+            self.save(update_fields=["status"])
+            return True
+        return False
 
     def __str__(self):
         return self.titulo
@@ -606,3 +625,14 @@ class AuditLog(models.Model):
 
     def __str__(self):
         return f"{self.usuario} {self.acao} {self.entidade}#{self.entidade_id}"
+
+
+@receiver(post_save, sender=Voto)
+def fechar_pauta_no_quorum(sender, instance, created, **kwargs):
+    """Ao registrar um voto, encerra a pauta se o quórum foi atingido.
+
+    Refetch fresco da pauta (a instância em `instance.pauta` pode vir com os
+    votos pré-carregados via prefetch_related, o que daria uma contagem velha).
+    """
+    if created:
+        Pauta.objects.get(pk=instance.pauta_id).fechar_se_necessario()

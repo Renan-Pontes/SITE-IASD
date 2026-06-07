@@ -180,6 +180,8 @@ export interface Pauta {
   criada_por_detalhe: UsuarioMini | null;
   anonima: boolean;
   prazo_votacao: string | null;
+  quorum_minimo: number | null;
+  quorum_atingido: boolean;
   status: "aberta" | "encerrada";
   resultado: { sim: number; nao: number; abstencao: number };
   meu_voto: OpcaoVoto | null;

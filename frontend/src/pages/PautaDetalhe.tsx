@@ -89,6 +89,12 @@ export default function PautaDetalhe() {
         {pauta.prazo_votacao && (
           <p className="mt-2 text-xs text-slate-400">Prazo: {formatData(pauta.prazo_votacao)}</p>
         )}
+        {pauta.quorum_minimo && (
+          <p className="mt-1 text-xs text-slate-400">
+            Quórum: {pauta.total_votos}/{pauta.quorum_minimo} votos
+            {pauta.quorum_atingido && " ✓"}
+          </p>
+        )}
       </Card>
 
       {/* Votação */}
