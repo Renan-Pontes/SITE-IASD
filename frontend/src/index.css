@@ -1,0 +1,71 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  /* Tamanho base. O modo "fonte grande" aumenta este valor e, como o Tailwind
+     usa rem, a interface inteira escala junto — ótimo para os anciões. */
+  font-size: 16px;
+}
+
+html.texto-grande {
+  font-size: 19px;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  background: #f6faf8;
+  color: #0f172a;
+  -webkit-font-smoothing: antialiased;
+  font-family: Inter, system-ui, "Segoe UI", Roboto, sans-serif;
+}
+
+/* Foco visível e forte para navegação por teclado (acessibilidade). */
+:focus-visible {
+  outline: 3px solid #047857;
+  outline-offset: 2px;
+  border-radius: 6px;
+}
+
+@layer components {
+  /* Botão grande, alvo de toque >= 48px, alto contraste. */
+  .btn {
+    @apply inline-flex items-center justify-center gap-2 rounded-xl px-5 py-3
+      text-base font-semibold transition active:scale-[0.98]
+      disabled:opacity-50 disabled:pointer-events-none min-h-[48px];
+  }
+  .btn-primary {
+    @apply btn bg-marca-700 text-white hover:bg-marca-800 shadow-sm;
+  }
+  .btn-ouro {
+    @apply btn bg-ouro-500 text-marca-900 hover:bg-ouro-600 shadow-sm;
+  }
+  .btn-secondary {
+    @apply btn bg-white text-marca-800 border-2 border-marca-200 hover:bg-marca-50;
+  }
+  .btn-ghost {
+    @apply btn bg-transparent text-slate-700 hover:bg-slate-100;
+  }
+  .btn-perigo {
+    @apply btn bg-red-600 text-white hover:bg-red-700;
+  }
+  .card {
+    @apply bg-white rounded-2xl shadow-sm border border-slate-100;
+  }
+  .input {
+    @apply w-full rounded-xl border-2 border-slate-200 px-4 py-3 text-base
+      focus:border-marca-500 focus:outline-none bg-white min-h-[48px];
+  }
+  .label {
+    @apply block text-sm font-semibold text-slate-700 mb-1.5;
+  }
+  .chip {
+    @apply inline-flex items-center gap-1 rounded-full px-3 py-1 text-xs font-semibold;
+  }
+}

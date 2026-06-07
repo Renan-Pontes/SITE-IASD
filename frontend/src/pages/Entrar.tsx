@@ -1,0 +1,93 @@
+import { useState } from "react";
+import { Link, useLocation, useNavigate } from "react-router-dom";
+import { useAuth } from "../auth/AuthContext";
+import { useToast } from "../ui/Toast";
+import { Botao, Campo } from "../ui/components";
+import { ApiError } from "../api/client";
+
+export default function Entrar() {
+  const { entrar } = useAuth();
+  const nav = useNavigate();
+  const loc = useLocation() as any;
+  const toast = useToast();
+  const [email, setEmail] = useState("");
+  const [senha, setSenha] = useState("");
+  const [carregando, setCarregando] = useState(false);
+
+  const submeter = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setCarregando(true);
+    try {
+      await entrar(email.trim(), senha);
+      toast.sucesso("Bem-vindo de volta!");
+      nav(loc.state?.de || "/", { replace: true });
+    } catch (err) {
+      toast.erro(
+        err instanceof ApiError && err.status === 401
+          ? "E-mail ou senha incorretos."
+          : "Não foi possível entrar. Tente novamente.",
+      );
+    } finally {
+      setCarregando(false);
+    }
+  };
+
+  return (
+    <div className="flex min-h-screen flex-col bg-marca-700">
+      <div className="flex flex-1 flex-col justify-center px-6 py-10 text-white">
+        <div className="mx-auto w-full max-w-md">
+          <div className="mb-8 text-center">
+            <div className="mx-auto mb-3 flex h-16 w-16 items-center justify-center rounded-2xl bg-white/15 text-3xl">
+              ✛
+            </div>
+            <h1 className="text-3xl font-extrabold">IASD Gestão</h1>
+            <p className="mt-1 text-marca-100">A agenda da sua igreja, num só lugar.</p>
+          </div>
+
+          <form
+            onSubmit={submeter}
+            className="space-y-4 rounded-2xl bg-white p-6 text-slate-800 shadow-xl"
+          >
+            <h2 className="text-xl font-bold">Entrar</h2>
+            <Campo label="E-mail">
+              <input
+                type="email"
+                className="input"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                autoComplete="email"
+                required
+                placeholder="voce@email.com"
+              />
+            </Campo>
+            <Campo label="Senha">
+              <input
+                type="password"
+                className="input"
+                value={senha}
+                onChange={(e) => setSenha(e.target.value)}
+                autoComplete="current-password"
+                required
+              />
+            </Campo>
+            <Botao type="submit" full carregando={carregando}>
+              Entrar
+            </Botao>
+            <p className="text-center text-sm text-slate-500">
+              Ainda não tem conta?{" "}
+              <Link to="/cadastro" className="font-semibold text-marca-700">
+                Cadastre-se
+              </Link>
+            </p>
+            <Link
+              to="/igrejas"
+              className="block text-center text-sm font-medium text-slate-400 hover:text-slate-600"
+            >
+              Ver programação como visitante →
+            </Link>
+          </form>
+        </div>
+      </div>
+    </div>
+  );
+}
