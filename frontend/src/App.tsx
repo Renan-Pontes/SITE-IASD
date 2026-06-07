@@ -1,5 +1,5 @@
 import { Navigate, Route, Routes, useLocation } from "react-router-dom";
-import { type ReactNode } from "react";
+import { type ReactNode, lazy, Suspense } from "react";
 import { useAuth } from "./auth/AuthContext";
 import { Layout } from "./components/Layout";
 import { Carregando } from "./ui/components";
@@ -23,6 +23,9 @@ import Perfil from "./pages/Perfil";
 import AdminIgreja from "./pages/AdminIgreja";
 import SuperAdmin from "./pages/SuperAdmin";
 import Auditoria from "./pages/Auditoria";
+
+// Mapa é carregado sob demanda (Leaflet fica fora do bundle principal).
+const Mapa = lazy(() => import("./pages/Mapa"));
 
 function RequireAuth({ children }: { children: ReactNode }) {
   const { logado, carregando } = useAuth();
@@ -51,6 +54,14 @@ export default function App() {
         <Route path="/igrejas" element={<Igrejas />} />
         <Route path="/igreja/:id" element={<IgrejaDetalhe />} />
         <Route path="/evento/:id" element={<EventoDetalhe />} />
+        <Route
+          path="/mapa"
+          element={
+            <Suspense fallback={<Carregando texto="Carregando mapa..." />}>
+              <Mapa />
+            </Suspense>
+          }
+        />
 
         {/* Exigem login */}
         <Route path="/grupos" element={<RequireAuth><Grupos /></RequireAuth>} />

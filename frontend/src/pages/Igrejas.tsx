@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import { Link } from "react-router-dom";
-import { MapPin, Search, Navigation, Users } from "lucide-react";
+import { MapPin, Search, Navigation, Users, Map as MapIcon } from "lucide-react";
 import type { Igreja } from "../lib/types";
 import { Card, SkeletonLista, Vazio, Badge } from "../ui/components";
 import { Sentinela } from "../components/Sentinela";
@@ -53,7 +53,12 @@ export default function Igrejas() {
 
   return (
     <div className="space-y-4">
-      <h1 className="text-2xl font-extrabold text-slate-800 dark:text-slate-100">Igrejas</h1>
+      <div className="flex items-center justify-between">
+        <h1 className="text-2xl font-extrabold text-slate-800 dark:text-slate-100">Igrejas</h1>
+        <Link to="/mapa" className="flex items-center gap-1 text-sm font-semibold text-marca-700">
+          <MapIcon size={18} /> Mapa
+        </Link>
+      </div>
 
       <form onSubmit={buscar} className="flex gap-2">
         <div className="relative flex-1">
