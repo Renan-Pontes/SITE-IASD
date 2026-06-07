@@ -11,8 +11,16 @@ export function EventoCard({ evento, mostrarIgreja }: { evento: Evento; mostrarI
       to={`/evento/${evento.id}`}
       className="card flex overflow-hidden transition hover:shadow-md"
     >
-      <div className={`w-2 shrink-0 ${barra}`} />
-      <div className="flex-1 p-4">
+      {evento.foto ? (
+        <img
+          src={evento.foto}
+          alt={evento.titulo}
+          className="w-24 shrink-0 object-cover"
+        />
+      ) : (
+        <div className={`w-2 shrink-0 ${barra}`} />
+      )}
+      <div className="min-w-0 flex-1 p-4">
         <div className="mb-1 flex items-center gap-2">
           {ehHoje(evento.inicio) && <Badge cor="ouro">Hoje</Badge>}
           {evento.visibilidade === "privado" && <Badge cor="cinza">Privado</Badge>}

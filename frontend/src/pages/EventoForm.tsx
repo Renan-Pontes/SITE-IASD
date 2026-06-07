@@ -1,7 +1,7 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
-import { ArrowLeft } from "lucide-react";
-import { api, ApiError } from "../api/client";
+import { ArrowLeft, ImagePlus, X } from "lucide-react";
+import { api, ApiError, uploadArquivo } from "../api/client";
 import { useAuth } from "../auth/AuthContext";
 import { useToast } from "../ui/Toast";
 import type { Evento, Grupo, Sala } from "../lib/types";
@@ -41,12 +41,38 @@ export default function EventoForm() {
   const set = (k: string) => (e: React.ChangeEvent<any>) =>
     setForm((f) => ({ ...f, [k]: e.target.value }));
 
+  // Foto do evento.
+  const [foto, setFoto] = useState<File | null>(null);
+  const [previewFoto, setPreviewFoto] = useState<string | null>(null);
+  const fotoInputRef = useRef<HTMLInputElement>(null);
+
+  const escolherFoto = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const f = e.target.files?.[0];
+    e.target.value = "";
+    if (!f) return;
+    if (!f.type.startsWith("image/")) {
+      toast.erro("Selecione um arquivo de imagem.");
+      return;
+    }
+    if (f.size > 5 * 1024 * 1024) {
+      toast.erro("Imagem muito grande (máximo 5 MB).");
+      return;
+    }
+    setFoto(f);
+    setPreviewFoto(URL.createObjectURL(f));
+  };
+
+  const removerFoto = () => {
+    setFoto(null);
+    setPreviewFoto(null);
+  };
+
   // Carrega evento ao editar.
   useEffect(() => {
     if (!editando) return;
     api
       .get<Evento>(`/api/eventos/${id}/`)
-      .then((ev) =>
+      .then((ev) => {
         setForm({
           titulo: ev.titulo,
           descricao: ev.descricao,
@@ -57,8 +83,9 @@ export default function EventoForm() {
           fim: paraInputLocal(ev.fim),
           visibilidade: ev.visibilidade,
           recorrencia: ev.recorrencia,
-        }),
-      )
+        });
+        if (ev.foto) setPreviewFoto(ev.foto);
+      })
       .finally(() => setCarregando(false));
   }, [editando, id]);
 
@@ -87,6 +114,14 @@ export default function EventoForm() {
       const ev = editando
         ? await api.patch<Evento>(`/api/eventos/${id}/`, payload)
         : await api.post<Evento>("/api/eventos/", payload);
+      // Foto é enviada após salvar (precisa do id do evento).
+      if (foto) {
+        try {
+          await uploadArquivo(`/api/eventos/${ev.id}/foto/`, foto);
+        } catch {
+          toast.erro("Evento salvo, mas não foi possível enviar a foto.");
+        }
+      }
       toast.sucesso(
         ev.status === "pendente"
           ? "Evento enviado para aprovação dos anciões."
@@ -135,6 +170,41 @@ export default function EventoForm() {
             onChange={set("descricao")}
           />
         </Campo>
+
+        <div>
+          <span className="label">Foto (opcional)</span>
+          {previewFoto ? (
+            <div className="relative">
+              <img src={previewFoto} alt="Foto do evento" className="h-40 w-full rounded-xl object-cover" />
+              <button
+                type="button"
+                onClick={removerFoto}
+                className="absolute right-2 top-2 rounded-full bg-black/50 p-1.5 text-white"
+                aria-label="Remover foto"
+              >
+                <X size={18} />
+              </button>
+              <button
+                type="button"
+                onClick={() => fotoInputRef.current?.click()}
+                className="absolute bottom-2 right-2 rounded-lg bg-white/90 px-3 py-1 text-sm font-semibold text-marca-700"
+              >
+                Trocar
+              </button>
+            </div>
+          ) : (
+            <button
+              type="button"
+              onClick={() => fotoInputRef.current?.click()}
+              className="flex h-32 w-full flex-col items-center justify-center gap-2 rounded-xl border-2 border-dashed border-slate-200 text-slate-400 hover:bg-slate-50"
+            >
+              <ImagePlus size={28} /> Adicionar foto
+            </button>
+          )}
+          <input ref={fotoInputRef} type="file" accept="image/*" className="hidden" onChange={escolherFoto} />
+          <span className="mt-1 block text-xs text-slate-400">JPG ou PNG, até 5 MB.</span>
+        </div>
+
         <Campo label="Igreja">
           <select className="input" value={form.igreja} onChange={set("igreja")} required>
             {minhasIgrejas.map((v) => (

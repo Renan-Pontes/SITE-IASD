@@ -408,6 +408,56 @@ class RecorrenciaMensalTests(TestCase):
         self.assertGreater(prox.month, 6)  # pulou junho
 
 
+class FotoEventoTests(TestCase):
+    def setUp(self):
+        self.igreja = Igreja.objects.create(nome="IASD Foto", cidade="SP", estado="SP")
+        self.anciao = cria_user("anciao@iasd.app", "Jose Anciao")
+        Membro.objects.create(usuario=self.anciao, igreja=self.igreja, papel=PapelIgreja.ANCIAO, status=StatusVinculo.ATIVO)
+        self.ev = Evento.objects.create(
+            titulo="Com Foto", igreja=self.igreja, inicio=timezone.now(),
+            fim=timezone.now() + timedelta(hours=1), status=StatusEvento.APROVADO,
+            criado_por=self.anciao,
+        )
+
+    def _png(self):
+        from io import BytesIO
+        from PIL import Image
+        from django.core.files.uploadedfile import SimpleUploadedFile
+
+        buf = BytesIO()
+        Image.new("RGB", (12, 12), "green").save(buf, "PNG")
+        return SimpleUploadedFile("ev.png", buf.getvalue(), content_type="image/png")
+
+    def test_upload_imagem_valida(self):
+        import tempfile
+        from django.test import override_settings
+        from django.core.files.uploadedfile import SimpleUploadedFile
+
+        client = APIClient()
+        autentica(client, "anciao@iasd.app")
+        with override_settings(MEDIA_ROOT=tempfile.mkdtemp()):
+            resp = client.post(
+                f"/api/eventos/{self.ev.id}/foto/", {"foto": self._png()}, format="multipart"
+            )
+            self.assertEqual(resp.status_code, 200, resp.content)
+            self.assertTrue(resp.data["foto"])
+
+            # Arquivo que não é imagem -> 400.
+            ruim = SimpleUploadedFile("x.png", b"isto nao e imagem", content_type="image/png")
+            resp = client.post(
+                f"/api/eventos/{self.ev.id}/foto/", {"foto": ruim}, format="multipart"
+            )
+            self.assertEqual(resp.status_code, 400)
+
+    def test_upload_sem_permissao(self):
+        outro = cria_user("ze@iasd.app")
+        Membro.objects.create(usuario=outro, igreja=self.igreja, papel=PapelIgreja.MEMBRO, status=StatusVinculo.ATIVO)
+        client = APIClient()
+        autentica(client, "ze@iasd.app")
+        resp = client.post(f"/api/eventos/{self.ev.id}/foto/", {"foto": self._png()}, format="multipart")
+        self.assertEqual(resp.status_code, 403)
+
+
 class SearchTests(TestCase):
     def setUp(self):
         self.igreja = Igreja.objects.create(nome="IASD Esperança", cidade="Santos", estado="SP")

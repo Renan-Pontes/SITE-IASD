@@ -123,13 +123,25 @@ def search(request):
 
 
 def _salvar_foto(instance, request):
-    """Salva o arquivo enviado no campo `foto` da instância. Retorna False se vazio."""
+    """
+    Valida (Pillow) e salva a imagem enviada no campo `foto`.
+    Retorna (ok: bool, erro: str). Limite de 5 MB, somente imagens válidas.
+    """
     arquivo = request.FILES.get("foto")
     if not arquivo:
-        return False
+        return False, "Envie um arquivo de imagem."
+    if arquivo.size > 5 * 1024 * 1024:
+        return False, "Imagem muito grande (máximo 5 MB)."
+    try:
+        from PIL import Image
+
+        Image.open(arquivo).verify()
+        arquivo.seek(0)
+    except Exception:
+        return False, "Arquivo de imagem inválido."
     instance.foto = arquivo
     instance.save(update_fields=["foto"])
-    return True
+    return True, ""
 
 
 # --------------------------------------------------------------------------- #
@@ -182,8 +194,9 @@ class MeFotoView(APIView):
     permission_classes = [IsAuthenticated]
 
     def post(self, request):
-        if not _salvar_foto(request.user.profile, request):
-            return Response({"foto": "Envie um arquivo de imagem."}, status=400)
+        ok, erro = _salvar_foto(request.user.profile, request)
+        if not ok:
+            return Response({"foto": erro}, status=400)
         return Response(
             ProfileSerializer(request.user.profile, context={"request": request}).data
         )
@@ -381,8 +394,9 @@ class IgrejaViewSet(viewsets.ModelViewSet):
         igreja = self.get_object()
         if not roles.eh_lideranca_igreja(request.user, igreja):
             return Response({"detail": "Sem permissão."}, status=403)
-        if not _salvar_foto(igreja, request):
-            return Response({"foto": "Envie um arquivo de imagem."}, status=400)
+        ok, erro = _salvar_foto(igreja, request)
+        if not ok:
+            return Response({"foto": erro}, status=400)
         return Response(IgrejaSerializer(igreja, context={"request": request}).data)
 
     @action(detail=True, methods=["get"])
@@ -558,8 +572,9 @@ class GrupoViewSet(viewsets.ModelViewSet):
         grupo = self.get_object()
         if not roles.eh_lideranca_grupo(request.user, grupo):
             return Response({"detail": "Sem permissão."}, status=403)
-        if not _salvar_foto(grupo, request):
-            return Response({"foto": "Envie um arquivo de imagem."}, status=400)
+        ok, erro = _salvar_foto(grupo, request)
+        if not ok:
+            return Response({"foto": erro}, status=400)
         return Response(GrupoSerializer(grupo, context={"request": request}).data)
 
     @action(detail=True, methods=["get"])
@@ -888,8 +903,9 @@ class EventoViewSet(viewsets.ModelViewSet):
             or roles.eh_lideranca_igreja(request.user, evento.igreja)
         ):
             return Response({"detail": "Sem permissão."}, status=403)
-        if not _salvar_foto(evento, request):
-            return Response({"foto": "Envie um arquivo de imagem."}, status=400)
+        ok, erro = _salvar_foto(evento, request)
+        if not ok:
+            return Response({"foto": erro}, status=400)
         return Response(EventoSerializer(evento, context={"request": request}).data)
 
     @action(detail=True, methods=["get"], permission_classes=[AllowAny])
