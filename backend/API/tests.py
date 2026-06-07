@@ -369,6 +369,45 @@ class IcalTests(TestCase):
         self.assertEqual(resp.status_code, 404)
 
 
+class AuditoriaRetencaoTests(TestCase):
+    def test_purga_registros_antigos(self):
+        from API.models import AuditLog
+
+        antigo = AuditLog.objects.create(acao="teste_antigo")
+        recente = AuditLog.objects.create(acao="teste_recente")
+        # Backdate do registro antigo (criado_em é auto_now_add).
+        AuditLog.objects.filter(pk=antigo.pk).update(
+            criado_em=timezone.now() - timedelta(days=120)
+        )
+        call_command("purgar_auditoria", "--dias", "90")
+        self.assertFalse(AuditLog.objects.filter(pk=antigo.pk).exists())
+        self.assertTrue(AuditLog.objects.filter(pk=recente.pk).exists())
+
+
+class RecorrenciaMensalTests(TestCase):
+    def test_proximo_mensal_mantem_nth_weekday(self):
+        from datetime import datetime
+        from API.utils import proximo_mensal
+
+        # 9/jun/2026 é a 2ª terça-feira de junho.
+        dt = timezone.make_aware(datetime(2026, 6, 9, 19, 30))
+        prox = proximo_mensal(dt)
+        # 2ª terça de julho/2026 é dia 14, mantendo a hora.
+        self.assertEqual((prox.year, prox.month, prox.day), (2026, 7, 14))
+        self.assertEqual((prox.hour, prox.minute), (19, 30))
+        self.assertEqual(prox.weekday(), dt.weekday())
+
+    def test_pula_mes_sem_5a_ocorrencia(self):
+        from datetime import datetime
+        from API.utils import proximo_mensal
+
+        # 29/mai/2026 é a 5ª sexta de maio; junho não tem 5ª sexta -> pula.
+        dt = timezone.make_aware(datetime(2026, 5, 29, 10, 0))
+        prox = proximo_mensal(dt)
+        self.assertEqual(prox.weekday(), 4)  # sexta
+        self.assertGreater(prox.month, 6)  # pulou junho
+
+
 class SearchTests(TestCase):
     def setUp(self):
         self.igreja = Igreja.objects.create(nome="IASD Esperança", cidade="Santos", estado="SP")

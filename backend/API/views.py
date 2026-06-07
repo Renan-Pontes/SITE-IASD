@@ -61,7 +61,7 @@ from .serializers import (
     UsuarioMiniSerializer,
     VotoSerializer,
 )
-from .utils import haversine_km, log_acao, notificar
+from .utils import haversine_km, log_acao, notificar, proximo_mensal
 
 User = get_user_model()
 
@@ -1104,8 +1104,13 @@ class CalendarioView(APIView):
         passo = {
             Recorrencia.DIARIA: timedelta(days=1),
             Recorrencia.SEMANAL: timedelta(weeks=1),
-            Recorrencia.MENSAL: timedelta(days=30),
-        }[ev.recorrencia]
+        }.get(ev.recorrencia)
+
+        def avancar(cursor):
+            # Mensal: mesma "Nth weekday" do mês (ex.: 2ª terça); demais: passo fixo.
+            if ev.recorrencia == Recorrencia.MENSAL:
+                return proximo_mensal(cursor)
+            return cursor + passo
 
         limite_fim = ate_dt
         if ev.recorrencia_ate:
@@ -1118,14 +1123,14 @@ class CalendarioView(APIView):
         ocorrencias = []
         cursor = ev.inicio
         n = 0
-        while n < self.LIMITE_OCORRENCIAS:
+        while n < self.LIMITE_OCORRENCIAS and cursor is not None:
             if limite_fim and cursor > limite_fim:
                 break
             if de_dt is None or (cursor + duracao) >= de_dt:
                 ocorrencias.append(self._ocorrencia(base, cursor, cursor + duracao))
-            cursor = cursor + passo
+            cursor = avancar(cursor)
             n += 1
-            if ate_dt and cursor > ate_dt:
+            if cursor and ate_dt and cursor > ate_dt:
                 break
         return ocorrencias
 

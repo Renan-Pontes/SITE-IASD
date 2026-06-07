@@ -1,8 +1,32 @@
-"""Helpers de auditoria, notificações e geolocalização."""
+"""Helpers de auditoria, notificações, geolocalização e recorrência."""
 
+import calendar
 import math
 
 from .models import AuditLog, Notificacao
+
+
+def proximo_mensal(dt):
+    """
+    Próxima ocorrência mensal mantendo o mesmo "Nth dia-da-semana" do mês
+    (ex.: 2ª terça-feira, último domingo). Pula meses sem essa ocorrência
+    (ex.: 5ª sexta). Mantém hora/minuto e timezone de `dt`. Retorna None se
+    não achar nos próximos meses.
+    """
+    ordinal = (dt.day - 1) // 7  # 0-based: 0 = 1ª ocorrência do mês
+    wd = dt.weekday()
+    y, m = dt.year, dt.month
+    for _ in range(13):
+        m += 1
+        if m > 12:
+            m = 1
+            y += 1
+        primeiro_wd = dt.replace(year=y, month=m, day=1).weekday()
+        offset = (wd - primeiro_wd) % 7
+        dia = 1 + offset + ordinal * 7
+        if dia <= calendar.monthrange(y, m)[1]:
+            return dt.replace(year=y, month=m, day=dia)
+    return None
 
 
 def log_acao(user, acao, entidade="", entidade_id=None, detalhes=None):
