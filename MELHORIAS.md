@@ -7,8 +7,8 @@ Lista do que evoluir a seguir. Marcados com ✅ o que já caiu como melhoria nes
 
 - [ ] **Upload de fotos** (perfil, igreja, grupo, evento). Backend já tem os campos
       `ImageField`; falta o endpoint multipart e o seletor de arquivo no front.
-- [ ] **PWA / instalável** — manifest + service worker para instalar como app no
-      celular e funcionar offline-first (cache da agenda).
+- [x] ~~**PWA / instalável**~~ ✅ feito: manifest + ícones + service worker
+      (network-first, registrado só em produção). Instala como app e abre offline.
 - [ ] **"Esqueci minha senha"** por e-mail (hoje só há troca de senha logado).
       Precisa configurar envio de e-mail (SMTP) no Django.
 - [ ] **Notificações por e-mail** opcionais (campo `notificacoes_email` já existe):
