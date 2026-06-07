@@ -17,10 +17,14 @@ votação de pautas pelos anciões e uma agenda digital para todos os membros.
   cargos internos, eventos próprios e pedidos de entrada.
 - **Eventos** com **fluxo de aprovação**: membros propõem → anciões aprovam.
   Confirmação de presença ("EU VOU"), eventos públicos/privados e recorrência.
-- **Calendário** mensal consolidado (eventos de todas as suas igrejas e grupos).
+- **Calendário** em **mês / semana / dia**, consolidado e com expansão de
+  recorrências (inclui mensal "Nth weekday", ex.: 2ª terça do mês), com filtros.
 - **Pautas** dos anciões com **votação** (sim/não/abstenção), **voto secreto**
-  opcional e resultado em tempo real.
-- **Notificações** in-app e **log de auditoria** para governança.
+  opcional, **quórum** com fechamento automático e resultado em tempo real.
+- **Mapa** das igrejas (Leaflet/OSM) e **busca textual global**.
+- **Notificações** in-app, **chat de grupo** e **log de auditoria** para governança.
+- **PWA instalável**, **upload de fotos**, **exportar evento `.ics`**,
+  **modo claro/escuro** e **scroll infinito** nas listas.
 - **Acessibilidade pensada para os anciões**: botões grandes, alto contraste,
   modo "fonte grande", português direto.
 
@@ -123,6 +127,13 @@ python manage.py test          # 14 testes dos fluxos críticos
 ```bash
 cd frontend
 npm run build                  # typecheck + build de produção
+```
+
+### Tarefas de manutenção (agendar em produção)
+
+```bash
+python manage.py fechar_pautas       # encerra pautas com prazo/quórum atingido
+python manage.py purgar_auditoria    # remove auditoria > 90 dias (--dias N)
 ```
 
 ---

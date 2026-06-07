@@ -1,68 +1,73 @@
-# Melhorias — backlog priorizado
+# Melhorias — backlog
 
-Estado: **MVP funcional** (backend DRF + frontend React, fluxos principais jogáveis).
-Lista do que evoluir a seguir. Marcados com ✅ o que já caiu como melhoria nesta noite.
+Estado: **MVP + várias evoluções entregues**. Backend DRF + frontend React, todos
+os fluxos principais jogáveis. Lista do que ainda dá pra evoluir.
 
-## 🔝 Prioridade alta (próximos passos)
+## ⏳ Pendente
 
-- [x] ~~**Upload de fotos**~~ ✅ feito: endpoints multipart (perfil, igreja, grupo,
-      evento) com checagem de permissão + componente de upload no front (avatar,
-      banner de evento/igreja/grupo). Limite de 5 MB.
-- [x] ~~**PWA / instalável**~~ ✅ feito: manifest + ícones + service worker
-      (network-first, registrado só em produção). Instala como app e abre offline.
-- [ ] **"Esqueci minha senha"** por e-mail (hoje só há troca de senha logado).
-      Precisa configurar envio de e-mail (SMTP) no Django.
+### Depende de e-mail/SMTP (adiado pelo Mestre)
+- [ ] **"Esqueci minha senha"** por e-mail.
 - [ ] **Notificações por e-mail** opcionais (campo `notificacoes_email` já existe):
       novo pedido de entrada, evento aprovado, nova pauta.
-- [ ] **Paginação/scroll infinito** nas listas grandes do front (a API já pagina;
-      o front hoje só lê a 1ª página em alguns lugares).
 
-## 🟡 Prioridade média
-
-- [ ] **Mapa com pinos** das igrejas próximas (Leaflet/OpenStreetMap, sem chave paga).
-- [x] ~~**Exportar evento** para Google Calendar / iCal (`.ics`)~~ ✅ feito: botão
-      "Adicionar à minha agenda" baixa o `.ics` do evento. Falta o feed assinável
-      (subscription) com a agenda inteira por usuário.
-- [ ] **Chat em tempo real** com WebSockets (Django Channels + Redis). Hoje é polling
-      a cada 8s — funciona, mas não é instantâneo.
-- [ ] **Modo claro/escuro** (a base de cores já está centralizada).
-- [ ] **Editar grupo/sala** pela UI (criar já existe; falta editar/desativar).
-- [ ] **Quórum / fechamento automático de pauta** quando todos os anciões votarem
-      ou o prazo expirar (hoje o `expirada` é só informativo).
-- [ ] **Filtros na agenda** por igreja/grupo/tipo direto no calendário.
-- [ ] **Busca textual global** (eventos, grupos, igrejas).
-
-## 🟢 Prioridade baixa / refinamentos
-
-- [ ] **i18n** de verdade — extrair strings (estrutura pronta, tudo em pt-BR hoje).
-- [ ] **Página do super admin** dedicada (criar igrejas pela UI, ver auditoria,
-      promover admins) — hoje isso é feito pelo Django Admin.
-- [ ] **Reações/curtidas e comentários** no chat e em postagens de grupo.
+### Funcionalidades
+- [ ] **Mural de grupo** (postagens com curtir/comentar) — hoje o grupo tem chat.
+- [ ] **Convites por link** (token único para entrar direto num grupo/igreja).
+- [ ] **Histórico de presença** do usuário (eventos a que já foi / relatório de check-ins).
 - [ ] **Relatórios** para a liderança (presença média, crescimento de membros).
-- [ ] **Histórico de presença** do usuário (eventos a que já foi).
-- [ ] **Convites** por link para entrar direto num grupo/igreja.
+- [ ] **Feed iCal assinável** (subscription) com a agenda inteira por usuário
+      (hoje exporta evento por evento via `.ics`).
+- [ ] **Chat em tempo real** de verdade (WebSockets) — só viável em infra que suporte
+      conexões persistentes (PythonAnywhere free tier não suporta; hoje é polling
+      incremental a cada 4s, ciente de foco).
+
+### Qualidade / segurança
 - [ ] **Testes de frontend** (smoke com Vitest/Playwright: login → agenda → RSVP).
-- [ ] **Rate limiting** e captcha no cadastro/login (segurança).
-- [ ] **Soft-delete** explícito + lixeira para eventos/grupos.
+- [ ] **i18n** de verdade — extrair strings (estrutura pronta, tudo em pt-BR hoje).
+- [ ] **Rate limiting** e captcha no cadastro/login.
+- [ ] **Lixeira / restaurar** itens arquivados (hoje arquivar grupo/sala só marca
+      `ativo=false`, sem tela de restauração).
 
 ## 🔧 Dívidas técnicas / observações
-
-- O front lê só a 1ª página em listas que usam `Paginated` — revisar para carregar tudo
-  ou paginar de verdade quando o volume crescer.
-- `recorrencia_ate` mensal usa passo fixo de 30 dias (aproximação). Para datas exatas
-  (ex.: "toda 1ª terça"), usar `dateutil.rrule` no futuro.
-- Em produção: rodar `collectstatic`, servir mídia por storage dedicado (S3/Cloud),
-  usar Gunicorn/Uvicorn + Nginx e `DJANGO_DEBUG=false`.
-- Definir política de retenção do `AuditLog` (cresce indefinidamente).
+- `LIMITE_OCORRENCIAS` do calendário é 60 por evento (proteção); recorrências muito
+  longas são truncadas silenciosamente — considerar paginar a agenda por período.
+- O mapa carrega até ~20 igrejas (primeiras páginas); paginar/clusterizar se crescer.
+- Definir periodicidade das tarefas agendadas em produção:
+  `python manage.py fechar_pautas` e `python manage.py purgar_auditoria`.
+- Em produção: rodar `collectstatic`, `DJANGO_DEBUG=false`, mídia por storage
+  dedicado se o volume crescer.
 
 ---
 
-### ✅ Já implementado nesta noite (além do MVP base)
+## ✅ Concluído
 
-- ✅ Ordenação de igrejas por **proximidade (GPS)** com Haversine no servidor.
-- ✅ **Calendário consolidado** que expande **eventos recorrentes**.
-- ✅ **Voto secreto** em pautas (oculta o autor de ponta a ponta).
-- ✅ **Modo "fonte grande"** persistido para acessibilidade dos anciões.
-- ✅ **Notificações in-app** com contador de não lidas.
-- ✅ **Log de auditoria** para governança.
-- ✅ **Dashboard** com pendências da liderança em destaque.
+### MVP base
+- ✅ Auth JWT (registro/login/refresh/me/trocar-senha).
+- ✅ Igrejas, Membros (papéis/aprovação), Grupos, GrupoMembros (cargos), Salas.
+- ✅ Eventos com workflow de aprovação + RSVP "EU VOU" + recorrência.
+- ✅ Pautas + votação (com voto secreto) — espaço dos anciões.
+- ✅ Chat de grupo, notificações in-app, log de auditoria.
+- ✅ RBAC em 3 níveis (super_admin / liderança de igreja / liderança de grupo).
+- ✅ Acessibilidade pros anciões (botões grandes, contraste, fonte grande, confirmações).
+- ✅ Dashboard com pendências da liderança; admin da igreja.
+
+### Evoluções
+- ✅ Ordenação de igrejas por **proximidade (GPS/Haversine)**.
+- ✅ **Calendário consolidado** com expansão de recorrências, incluindo
+  **mensal "Nth weekday"** (ex.: 2ª terça, último domingo).
+- ✅ **Calendário em mês / semana / dia**.
+- ✅ **PWA instalável** (manifest + ícones + service worker).
+- ✅ **Upload de fotos** (perfil, igreja, grupo, evento).
+- ✅ **Exportar evento `.ics`** (Google Agenda / calendário do celular).
+- ✅ **Paginação / scroll infinito** nas listas grandes.
+- ✅ **Página super admin** (criar/gerir igrejas pela UI) + **auditoria** na UI.
+- ✅ **Mapa** das igrejas com pinos (Leaflet + OpenStreetMap).
+- ✅ **Quórum** de pauta + **fechamento automático** (signal + comando p/ prazo).
+- ✅ **Busca textual global** (igrejas, grupos, eventos, pessoas).
+- ✅ **Filtros na agenda** (igreja / grupo).
+- ✅ **Editar / arquivar** grupos e salas pela UI.
+- ✅ **Chat com polling incremental** (mais leve e ágil; pausa com a aba oculta).
+- ✅ **Retenção de auditoria** (comando de purga, padrão 90 dias).
+- ✅ **Modo claro / escuro** (respeita o sistema, persiste, tema verde preservado).
+- ✅ **Deploy preparado**: Vercel (frontend) + PythonAnywhere (backend), WhiteNoise,
+  `.env` via dotenv, healthcheck `/api/health/`, `vercel.json` (SPA). Veja `docs/DEPLOY.md`.
