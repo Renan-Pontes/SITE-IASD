@@ -2,10 +2,10 @@ import { useEffect, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import {
   Clock, MapPin, Users, CheckCircle2, HelpCircle, XCircle, Church,
-  Check, X, Pencil, Trash2, ArrowLeft, Image as ImageIcon,
+  Check, X, Pencil, Trash2, ArrowLeft, Image as ImageIcon, CalendarPlus,
 } from "lucide-react";
 import { UploadFoto } from "../components/UploadFoto";
-import { api, ApiError } from "../api/client";
+import { api, ApiError, baixarComAuth } from "../api/client";
 import { useAuth } from "../auth/AuthContext";
 import { useToast } from "../ui/Toast";
 import type { Evento, Inscricao } from "../lib/types";
@@ -88,6 +88,14 @@ export default function EventoDetalhe() {
       nav(-1);
     } catch (e) {
       toast.erro(e instanceof ApiError ? e.message : "Erro ao excluir.");
+    }
+  };
+
+  const baixarIcal = async () => {
+    try {
+      await baixarComAuth(`/api/eventos/${id}/ical/`, `${evento?.titulo || "evento"}.ics`);
+    } catch {
+      toast.erro("Não foi possível baixar a agenda.");
     }
   };
 
@@ -188,6 +196,12 @@ export default function EventoDetalhe() {
               <XCircle size={26} /> Não vou
             </button>
           </div>
+          <button
+            onClick={baixarIcal}
+            className="mt-3 flex w-full items-center justify-center gap-2 rounded-xl py-2 font-semibold text-marca-700 hover:bg-marca-50"
+          >
+            <CalendarPlus size={20} /> Adicionar à minha agenda
+          </button>
         </Card>
       )}
 

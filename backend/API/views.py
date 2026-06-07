@@ -7,10 +7,11 @@ Convenções de autorização:
 - Toda mutação relevante grava AuditLog via `utils.log_acao`.
 """
 
-from datetime import timedelta
+from datetime import timedelta, timezone as dt_timezone
 
 from django.contrib.auth import get_user_model
 from django.db.models import Count, Q
+from django.http import HttpResponse
 from django.utils import timezone
 from rest_framework import status, viewsets
 from rest_framework.decorators import action, api_view, permission_classes
@@ -623,7 +624,7 @@ class EventoViewSet(viewsets.ModelViewSet):
     ordering_fields = ["inicio", "criado_em"]
 
     def get_permissions(self):
-        if self.action in ("list", "retrieve", "participantes"):
+        if self.action in ("list", "retrieve", "participantes", "ical"):
             return [AllowAny()]
         return [IsAuthenticated()]
 
@@ -808,6 +809,48 @@ class EventoViewSet(viewsets.ModelViewSet):
         if not _salvar_foto(evento, request):
             return Response({"foto": "Envie um arquivo de imagem."}, status=400)
         return Response(EventoSerializer(evento, context={"request": request}).data)
+
+    @action(detail=True, methods=["get"], permission_classes=[AllowAny])
+    def ical(self, request, pk=None):
+        """Exporta o evento como .ics (para o Google Agenda / calendário do celular)."""
+        evento = self.get_object()  # respeita a visibilidade do get_queryset
+
+        def fmt(dt):
+            return dt.astimezone(dt_timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+
+        def esc(txt):
+            return (
+                (txt or "")
+                .replace("\\", "\\\\")
+                .replace(";", "\\;")
+                .replace(",", "\\,")
+                .replace("\n", "\\n")
+            )
+
+        local = ", ".join(
+            p for p in [evento.sala.nome if evento.sala else "", evento.igreja.nome] if p
+        )
+        linhas = [
+            "BEGIN:VCALENDAR",
+            "VERSION:2.0",
+            "PRODID:-//IASD Gestao//PT-BR//",
+            "CALSCALE:GREGORIAN",
+            "METHOD:PUBLISH",
+            "BEGIN:VEVENT",
+            f"UID:evento-{evento.id}@iasd-gestao",
+            f"DTSTAMP:{fmt(timezone.now())}",
+            f"DTSTART:{fmt(evento.inicio)}",
+            f"DTEND:{fmt(evento.fim)}",
+            f"SUMMARY:{esc(evento.titulo)}",
+            f"DESCRIPTION:{esc(evento.descricao)}",
+            f"LOCATION:{esc(local)}",
+            "END:VEVENT",
+            "END:VCALENDAR",
+        ]
+        conteudo = "\r\n".join(linhas) + "\r\n"
+        resp = HttpResponse(conteudo, content_type="text/calendar; charset=utf-8")
+        resp["Content-Disposition"] = f'attachment; filename="evento-{evento.id}.ics"'
+        return resp
 
 
 # --------------------------------------------------------------------------- #

@@ -299,6 +299,34 @@ class GrupoChatTests(TestCase):
         self.assertEqual(resp.status_code, 201, resp.content)
 
 
+class IcalTests(TestCase):
+    def setUp(self):
+        self.igreja = Igreja.objects.create(nome="IASD Ical", cidade="SP", estado="SP")
+        self.criador = cria_user("criador@iasd.app")
+        Membro.objects.create(usuario=self.criador, igreja=self.igreja, papel=PapelIgreja.MEMBRO, status=StatusVinculo.ATIVO)
+        agora = timezone.now()
+        self.publico = Evento.objects.create(
+            titulo="Culto", igreja=self.igreja, inicio=agora, fim=agora + timedelta(hours=1),
+            status=StatusEvento.APROVADO, visibilidade=VisibilidadeEvento.PUBLICO, criado_por=self.criador,
+        )
+        self.privado = Evento.objects.create(
+            titulo="Privado", igreja=self.igreja, inicio=agora, fim=agora + timedelta(hours=1),
+            status=StatusEvento.APROVADO, visibilidade=VisibilidadeEvento.PRIVADO, criado_por=self.criador,
+        )
+
+    def test_ical_publico_sem_auth(self):
+        resp = self.client.get(f"/api/eventos/{self.publico.id}/ical/")
+        self.assertEqual(resp.status_code, 200)
+        self.assertIn("text/calendar", resp["Content-Type"])
+        corpo = resp.content.decode("utf-8")
+        self.assertIn("BEGIN:VCALENDAR", corpo)
+        self.assertIn("SUMMARY:Culto", corpo)
+
+    def test_ical_privado_anon_nao_acessa(self):
+        resp = self.client.get(f"/api/eventos/{self.privado.id}/ical/")
+        self.assertEqual(resp.status_code, 404)
+
+
 class DistanciaIgrejaTests(TestCase):
     def test_ordena_por_proximidade(self):
         Igreja.objects.create(nome="Perto", latitude=-23.55, longitude=-46.63, cidade="SP", estado="SP")

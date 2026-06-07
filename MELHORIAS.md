@@ -20,7 +20,9 @@ Lista do que evoluir a seguir. Marcados com ✅ o que já caiu como melhoria nes
 ## 🟡 Prioridade média
 
 - [ ] **Mapa com pinos** das igrejas próximas (Leaflet/OpenStreetMap, sem chave paga).
-- [ ] **Exportar agenda** para Google Calendar / iCal (`.ics`) — gerar feed por usuário.
+- [x] ~~**Exportar evento** para Google Calendar / iCal (`.ics`)~~ ✅ feito: botão
+      "Adicionar à minha agenda" baixa o `.ics` do evento. Falta o feed assinável
+      (subscription) com a agenda inteira por usuário.
 - [ ] **Chat em tempo real** com WebSockets (Django Channels + Redis). Hoje é polling
       a cada 8s — funciona, mas não é instantâneo.
 - [ ] **Modo claro/escuro** (a base de cores já está centralizada).
