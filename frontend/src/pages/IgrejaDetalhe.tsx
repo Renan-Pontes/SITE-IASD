@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
-import { MapPin, Phone, Settings, ShieldCheck, LogIn, Gavel } from "lucide-react";
+import { MapPin, Phone, Settings, ShieldCheck, LogIn, Gavel, Star } from "lucide-react";
 import { api } from "../api/client";
 import { useAuth } from "../auth/AuthContext";
 import { useToast } from "../ui/Toast";
@@ -23,6 +23,24 @@ export default function IgrejaDetalhe() {
   const [lideranca, setLideranca] = useState<Membro[]>([]);
   const [carregandoAba, setCarregandoAba] = useState(false);
   const [entrando, setEntrando] = useState(false);
+  const [seguindo, setSeguindo] = useState(false);
+
+  const alternarSeguir = async () => {
+    if (!logado) {
+      nav("/entrar", { state: { de: `/igreja/${id}` } });
+      return;
+    }
+    setSeguindo(true);
+    try {
+      const acao = igreja?.eu_sigo ? "deixar-de-seguir" : "seguir";
+      await api.post(`/api/igrejas/${id}/${acao}/`);
+      await recarregarIgreja();
+    } catch {
+      toast.erro("Não foi possível atualizar.");
+    } finally {
+      setSeguindo(false);
+    }
+  };
 
   const recarregarIgreja = () =>
     api.get<Igreja>(`/api/igrejas/${id}/`).then(setIgreja);
@@ -135,6 +153,12 @@ export default function IgrejaDetalhe() {
             {(!igreja.meu_status || igreja.meu_status === "inativo") && (
               <Botao onClick={entrar} carregando={entrando}>
                 <LogIn size={18} /> Entrar nesta igreja
+              </Botao>
+            )}
+            {logado && (
+              <Botao variante={igreja.eu_sigo ? "secondary" : "primary"} onClick={alternarSeguir} carregando={seguindo}>
+                <Star size={18} className={igreja.eu_sigo ? "fill-current" : ""} />
+                {igreja.eu_sigo ? "Seguindo" : "Seguir"}
               </Botao>
             )}
             {sou && (

@@ -112,6 +112,7 @@ export default function Igrejas() {
                   </div>
                   {ig.distancia_km != null && <Badge cor="marca">{ig.distancia_km} km</Badge>}
                   {ig.meu_status === "ativo" && <Badge cor="ouro">Minha</Badge>}
+                  {ig.eu_sigo && ig.meu_status !== "ativo" && <Badge cor="azul">★ Seguindo</Badge>}
                 </Card>
               </Link>
             ))}

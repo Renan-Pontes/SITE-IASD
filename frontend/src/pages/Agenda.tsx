@@ -13,6 +13,7 @@ export default function Agenda() {
   const [grupos, setGrupos] = useState<Grupo[]>([]);
   const [igrejaId, setIgrejaId] = useState("");
   const [grupoId, setGrupoId] = useState("");
+  const [proximas, setProximas] = useState(false);
 
   // Carrega igrejas para o filtro (uma vez).
   useEffect(() => {
@@ -37,11 +38,12 @@ export default function Agenda() {
     const params = new URLSearchParams({ de, ate });
     if (igrejaId) params.set("igreja", igrejaId);
     if (grupoId) params.set("grupo", grupoId);
+    if (proximas) params.set("proximas", "1");
     api
       .get<Evento[]>(`/api/calendario/?${params.toString()}`)
       .then(setEventos)
       .finally(() => setCarregando(false));
-  }, [mes, igrejaId, grupoId]);
+  }, [mes, igrejaId, grupoId, proximas]);
 
   return (
     <div className="space-y-4">
@@ -77,6 +79,16 @@ export default function Agenda() {
           </select>
         )}
       </div>
+
+      <label className="flex items-center gap-2 text-sm font-medium text-slate-600 dark:text-slate-300">
+        <input
+          type="checkbox"
+          className="h-4 w-4 accent-marca-600"
+          checked={proximas}
+          onChange={(e) => setProximas(e.target.checked)}
+        />
+        Incluir igrejas próximas (até 50 km)
+      </label>
 
       {carregando && eventos.length === 0 ? (
         <Carregando texto="Carregando agenda..." />

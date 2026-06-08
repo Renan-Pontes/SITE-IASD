@@ -293,11 +293,11 @@ function EditarGrupo({
   grupo: Grupo | null; aoFechar: () => void; aoSalvar: () => void;
 }) {
   const toast = useToast();
-  const [form, setForm] = useState({ nome: "", tipo: "ministerio", descricao: "" });
+  const [form, setForm] = useState({ nome: "", tipo: "ministerio", descricao: "", cor: "#64748b" });
   const [salvando, setSalvando] = useState(false);
 
   useEffect(() => {
-    if (grupo) setForm({ nome: grupo.nome, tipo: grupo.tipo, descricao: grupo.descricao });
+    if (grupo) setForm({ nome: grupo.nome, tipo: grupo.tipo, descricao: grupo.descricao, cor: grupo.cor || "#64748b" });
   }, [grupo]);
 
   if (!grupo) return null;
@@ -358,6 +358,17 @@ function EditarGrupo({
         </Campo>
         <Campo label="Descrição">
           <textarea className="input min-h-[70px]" value={form.descricao} onChange={(e) => setForm({ ...form, descricao: e.target.value })} />
+        </Campo>
+        <Campo label="Cor do grupo" dica="Vira o anel da bolinha do evento.">
+          <div className="flex items-center gap-3">
+            <input
+              type="color"
+              className="h-11 w-16 cursor-pointer rounded-lg border border-slate-200"
+              value={form.cor}
+              onChange={(e) => setForm({ ...form, cor: e.target.value })}
+            />
+            <span className="text-sm text-slate-500">{form.cor}</span>
+          </div>
         </Campo>
       </div>
     </Modal>
@@ -548,6 +559,7 @@ function Dados({
     estado: igreja.estado,
     telefone: igreja.telefone,
     email: igreja.email,
+    cor_primaria: igreja.cor_primaria || "#16a34a",
   });
   const [salvando, setSalvando] = useState(false);
   const set = (k: string) => (e: React.ChangeEvent<any>) => setForm({ ...form, [k]: e.target.value });
@@ -625,6 +637,17 @@ function Dados({
           <input className="input" value={form.email} onChange={set("email")} />
         </Campo>
       </div>
+      <Campo label="Cor da igreja" dica="Aparece como identidade visual (bolinha do evento).">
+        <div className="flex items-center gap-3">
+          <input
+            type="color"
+            className="h-11 w-16 cursor-pointer rounded-lg border border-slate-200"
+            value={form.cor_primaria}
+            onChange={set("cor_primaria")}
+          />
+          <span className="text-sm text-slate-500">{form.cor_primaria}</span>
+        </div>
+      </Campo>
       <Botao full onClick={salvar} carregando={salvando}>
         <Save size={18} /> Salvar dados
       </Botao>

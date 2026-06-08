@@ -3,9 +3,9 @@ import { Clock, MapPin, Users, CheckCircle2 } from "lucide-react";
 import type { Evento } from "../lib/types";
 import { formatDiaSemana, formatData, formatHora, ehHoje } from "../lib/format";
 import { Badge } from "../ui/components";
+import { BolinhaEvento } from "./BolinhaEvento";
 
 export function EventoCard({ evento, mostrarIgreja }: { evento: Evento; mostrarIgreja?: boolean }) {
-  const barra = evento.visibilidade === "privado" ? "bg-slate-400" : "bg-marca-600";
   return (
     <Link
       to={`/evento/${evento.id}`}
@@ -18,20 +18,24 @@ export function EventoCard({ evento, mostrarIgreja }: { evento: Evento; mostrarI
           className="w-24 shrink-0 object-cover"
         />
       ) : (
-        <div className={`w-2 shrink-0 ${barra}`} />
+        <div
+          className="w-2 shrink-0"
+          style={{ background: `linear-gradient(${evento.cor_igreja}, ${evento.cor_grupo || "#94a3b8"})` }}
+        />
       )}
       <div className="min-w-0 flex-1 p-4">
         <div className="mb-1 flex items-center gap-2">
+          <BolinhaEvento corIgreja={evento.cor_igreja} corGrupo={evento.cor_grupo} titulo={`${evento.igreja_nome}${evento.grupo_nome ? " · " + evento.grupo_nome : ""}`} />
           {ehHoje(evento.inicio) && <Badge cor="ouro">Hoje</Badge>}
           {evento.visibilidade === "privado" && <Badge cor="cinza">Privado</Badge>}
           {evento.status === "pendente" && <Badge cor="vermelho">Aguardando</Badge>}
           {evento.grupo_nome && <Badge cor="azul">{evento.grupo_nome}</Badge>}
         </div>
-        <h3 className="text-lg font-bold leading-tight text-slate-800">{evento.titulo}</h3>
+        <h3 className="text-lg font-bold leading-tight text-slate-800 dark:text-slate-100">{evento.titulo}</h3>
         <div className="mt-2 space-y-1 text-sm text-slate-500">
           <div className="flex items-center gap-1.5">
             <Clock size={16} className="text-marca-600" />
-            <span className="font-medium text-slate-600">
+            <span className="font-medium text-slate-600 dark:text-slate-300">
               {formatDiaSemana(evento.inicio)}, {formatData(evento.inicio)} • {formatHora(evento.inicio)}
             </span>
           </div>

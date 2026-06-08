@@ -81,11 +81,13 @@ export interface Igreja {
   telefone: string;
   email: string;
   foto: string | null;
+  cor_primaria: string;
   ativo: boolean;
   total_membros: number;
   distancia_km: number | null;
   meu_status: StatusVinculo | null;
   meu_papel: PapelIgreja | null;
+  eu_sigo: boolean;
   criado_em: string;
 }
 
@@ -110,6 +112,7 @@ export interface Grupo {
   igreja: number;
   igreja_nome: string;
   foto: string | null;
+  cor: string;
   ativo: boolean;
   total_membros: number;
   meu_status: StatusVinculo | null;
@@ -145,6 +148,8 @@ export interface Evento {
   descricao: string;
   igreja: number;
   igreja_nome: string;
+  cor_igreja: string;
+  cor_grupo: string | null;
   grupo: number | null;
   grupo_nome: string | null;
   sala: number | null;

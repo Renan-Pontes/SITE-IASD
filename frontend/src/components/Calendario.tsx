@@ -4,6 +4,7 @@ import { Link } from "react-router-dom";
 import type { Evento } from "../lib/types";
 import { EventoCard } from "./EventoCard";
 import { AgendaDiaModal } from "./AgendaDiaModal";
+import { BolinhaEvento } from "./BolinhaEvento";
 import { Vazio } from "../ui/components";
 import { formatHora } from "../lib/format";
 
@@ -15,15 +16,6 @@ const MESES = [
   "Janeiro", "Fevereiro", "Março", "Abril", "Maio", "Junho",
   "Julho", "Agosto", "Setembro", "Outubro", "Novembro", "Dezembro",
 ];
-
-// Paleta para colorir o evento por grupo (dá noção de "tipo").
-const PALETA = [
-  "bg-marca-600", "bg-blue-500", "bg-purple-500", "bg-amber-500",
-  "bg-rose-500", "bg-cyan-600", "bg-orange-500",
-];
-function corEvento(ev: Evento) {
-  return ev.grupo ? PALETA[ev.grupo % PALETA.length] : "bg-marca-600";
-}
 
 function chaveDia(d: Date) {
   return `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`;
@@ -124,6 +116,15 @@ export function Calendario({
         </button>
       </div>
 
+      <div className="flex items-center justify-center gap-3 text-xs text-slate-400">
+        <span className="flex items-center gap-1">
+          <BolinhaEvento corIgreja="#16a34a" corGrupo="#94a3b8" size={12} /> centro = igreja
+        </span>
+        <span className="flex items-center gap-1">
+          <BolinhaEvento corIgreja="#94a3b8" corGrupo="#9333ea" size={12} /> anel = grupo
+        </span>
+      </div>
+
       {visao === "mes" && (
         <VisaoMes mes={mes} hoje={hoje} porDia={porDia} aoAbrirDia={abrirDia} />
       )}
@@ -184,7 +185,7 @@ function VisaoMes({
               {evs.length > 0 && (
                 <span className="absolute bottom-1 flex gap-0.5">
                   {evs.slice(0, 3).map((ev, j) => (
-                    <span key={j} className={`h-1.5 w-1.5 rounded-full ${ehHoje ? "bg-white" : corEvento(ev)}`} />
+                    <BolinhaEvento key={j} corIgreja={ev.cor_igreja} corGrupo={ev.cor_grupo} size={7} />
                   ))}
                 </span>
               )}
@@ -246,7 +247,10 @@ function VisaoSemana({
                     className="block overflow-hidden rounded-lg border border-slate-100 bg-white text-xs shadow-sm hover:shadow dark:border-slate-800"
                   >
                     <div className="flex">
-                      <span className={`w-1 shrink-0 ${corEvento(ev)}`} />
+                      <span
+                        className="w-1.5 shrink-0"
+                        style={{ background: `linear-gradient(${ev.cor_igreja}, ${ev.cor_grupo || "#94a3b8"})` }}
+                      />
                       <span className="min-w-0 p-2">
                         <span className="block font-bold text-marca-700 dark:text-marca-300">
                           {formatHora(ev.inicio)}
