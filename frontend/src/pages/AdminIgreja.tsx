@@ -224,10 +224,14 @@ function Grupos({ igrejaId }: { igrejaId: number }) {
     if (!form.nome.trim()) return;
     setSalvando(true);
     try {
-      await api.post("/api/grupos/", { ...form, igreja: igrejaId });
-      toast.sucesso("Grupo criado!");
+      const r = await api.post("/api/grupos/", { ...form, igreja: igrejaId });
+      if (r?.status === "pauta_aberta") {
+        toast.sucesso("Proposta enviada ao Canal dos Anciões para votação.");
+      } else {
+        toast.sucesso("Grupo criado!");
+        carregar();
+      }
       setForm({ nome: "", tipo: "ministerio", descricao: "" });
-      carregar();
     } catch (e) {
       toast.erro(e instanceof ApiError ? e.message : "Erro ao criar.");
     } finally {
@@ -376,15 +380,19 @@ function Salas({ igrejaId }: { igrejaId: number }) {
     if (!form.nome.trim()) return;
     setSalvando(true);
     try {
-      await api.post("/api/salas/", {
+      const r = await api.post("/api/salas/", {
         nome: form.nome,
         igreja: igrejaId,
         capacidade: form.capacidade ? Number(form.capacidade) : null,
         equipamentos: form.equipamentos,
       });
-      toast.sucesso("Sala criada!");
+      if (r?.status === "pauta_aberta") {
+        toast.sucesso("Proposta enviada ao Canal dos Anciões para votação.");
+      } else {
+        toast.sucesso("Sala criada!");
+        carregar();
+      }
       setForm({ nome: "", capacidade: "", equipamentos: "" });
-      carregar();
     } catch (e) {
       toast.erro(e instanceof ApiError ? e.message : "Erro ao criar.");
     } finally {

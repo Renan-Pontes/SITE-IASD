@@ -185,6 +185,8 @@ export interface Pauta {
   criada_por: number | null;
   criada_por_detalhe: UsuarioMini | null;
   tipo: TipoPauta;
+  categoria: string;
+  metodo_votacao: string;
   payload: any | null;
   opcoes: string[] | null;
   anonima: boolean;
@@ -192,12 +194,15 @@ export interface Pauta {
   prazo_votacao: string | null;
   quorum_minimo: number | null;
   quorum_atingido: boolean;
-  status: "aberta" | "encerrada";
+  status: "aberta" | "encerrada" | "expirada_sem_quorum";
   decisao: string;
   aplicada_em: string | null;
-  resultado: Record<string, number>;
+  resultado: Record<string, number> | null;
+  mostra_resultado: boolean;
   meu_voto: string | null;
   total_votos: number;
+  total_eleitores: number;
+  pendentes: { id: number; nome: string }[];
   expirada: boolean;
   criado_em: string;
 }

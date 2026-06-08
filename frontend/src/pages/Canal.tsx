@@ -12,6 +12,15 @@ import { Botao, Card, Carregando, Badge, Vazio, Campo } from "../ui/components";
 import { Modal } from "../ui/Modal";
 import { formatData, rotulo } from "../lib/format";
 
+const METODO_DICA: Record<string, string> = {
+  maioria_simples: "Mais 'sim' que 'não'. Padrão para o dia a dia.",
+  unanimidade: "Todos os anciões precisam concordar. Um 'não' rejeita na hora.",
+  maioria_absoluta: "Mais da metade de TODOS os anciões precisa votar 'sim'.",
+  dois_tercos: "Pelo menos 2/3 dos votos precisam ser 'sim'.",
+  quorum_aprovacao: "Aprova ao atingir o número de 'sim' definido no Quórum.",
+  lider: "Um único 'sim' já aprova. Para coisas simples.",
+};
+
 const TIPOS: { tipo: TipoPauta; label: string; icone: any; dica: string }[] = [
   { tipo: "alteracao_igreja", label: "Alterar igreja", icone: Building2, dica: "Mudar dados da igreja" },
   { tipo: "criar_grupo", label: "Criar grupo", icone: UsersIcon, dica: "Novo ministério/classe" },
@@ -169,6 +178,16 @@ function CriarPautaCanal({
   const [prazo, setPrazo] = useState("");
   const [anonima, setAnonima] = useState(false);
   const [justificativa, setJustificativa] = useState(true);
+  const [metodo, setMetodo] = useState("maioria_simples");
+  const [categoria, setCategoria] = useState("outros");
+  const [anciaos, setAnciaos] = useState<string[]>([]);
+
+  useEffect(() => {
+    api
+      .get<any[]>(`/api/igrejas/${igreja.id}/lideranca/`)
+      .then((ls) => setAnciaos(ls.map((m) => m.usuario_detalhe?.nome).filter(Boolean)))
+      .catch(() => {});
+  }, [igreja.id]);
 
   // Específicos
   const [grupo, setGrupo] = useState({ nome: "", tipo: "ministerio", descricao: "" });
@@ -181,7 +200,7 @@ function CriarPautaCanal({
 
   const reset = () => {
     setTipo(null); setTitulo(""); setDescricao(""); setQuorum(""); setPrazo("");
-    setAnonima(false); setJustificativa(true);
+    setAnonima(false); setJustificativa(true); setMetodo("maioria_simples"); setCategoria("outros");
     setGrupo({ nome: "", tipo: "ministerio", descricao: "" });
     setSala({ nome: "", capacidade: "", equipamentos: "" });
     setEvento({ titulo: "", descricao: "", inicio: "", fim: "", visibilidade: "publico" });
@@ -213,6 +232,8 @@ function CriarPautaCanal({
       descricao,
       igreja: igreja.id,
       tipo,
+      categoria,
+      metodo_votacao: metodo,
       anonima,
       permitir_justificativa: justificativa,
       quorum_minimo: quorum ? Number(quorum) : null,
@@ -293,6 +314,35 @@ function CriarPautaCanal({
           </Campo>
           <Campo label="Descrição / justificativa">
             <textarea className="input min-h-[70px]" value={descricao} onChange={(e) => setDescricao(e.target.value)} />
+          </Campo>
+
+          <Campo label="Método de votação">
+            <select className="input" value={metodo} onChange={(e) => setMetodo(e.target.value)}>
+              <option value="maioria_simples">Maioria simples (mais sim que não)</option>
+              <option value="unanimidade">Unanimidade (todos precisam concordar)</option>
+              <option value="maioria_absoluta">Maioria absoluta (&gt;50% dos anciões)</option>
+              <option value="dois_tercos">Dois terços dos votos</option>
+              <option value="quorum_aprovacao">Quórum de aprovação (use o campo Quórum)</option>
+              <option value="lider">Aprovação simples (1 sim já basta)</option>
+            </select>
+            <span className="mt-1 block text-xs text-slate-400">{METODO_DICA[metodo]}</span>
+          </Campo>
+
+          {anciaos.length > 0 && (
+            <p className="rounded-lg bg-slate-50 p-2 text-xs text-slate-500 dark:bg-slate-800/50">
+              Votarão: {anciaos.join(", ")} — {anciaos.length} ancião(s).
+            </p>
+          )}
+
+          <Campo label="Categoria">
+            <select className="input" value={categoria} onChange={(e) => setCategoria(e.target.value)}>
+              <option value="outros">Outros</option>
+              <option value="infraestrutura">Infraestrutura</option>
+              <option value="programacao">Programação</option>
+              <option value="financeiro">Financeiro</option>
+              <option value="grupos">Grupos</option>
+              <option value="pessoal">Pessoal</option>
+            </select>
           </Campo>
 
           {tipo === "alteracao_igreja" && (

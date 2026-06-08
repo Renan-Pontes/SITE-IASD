@@ -35,7 +35,8 @@ export default function PautaDetalhe() {
 
   if (!pauta) return <Carregando />;
 
-  const encerrada = pauta.status === "encerrada" || pauta.expirada;
+  const encerrada = pauta.status !== "aberta" || pauta.expirada;
+  const semQuorum = pauta.status === "expirada_sem_quorum";
   const sou = lideroIgreja(pauta.igreja);
   const ehEnquete = pauta.tipo === "enquete_livre" && !!pauta.opcoes?.length;
 
@@ -48,8 +49,13 @@ export default function PautaDetalhe() {
         { k: "abstencao", label: "Abstenção", Icone: MinusCircle, cor: "cinza" },
       ];
 
-  const total = Object.values(pauta.resultado).reduce((s, n) => s + n, 0);
+  const total = pauta.resultado ? Object.values(pauta.resultado).reduce((s, n) => s + n, 0) : 0;
   const pct = (n: number) => (total ? Math.round((n / total) * 100) : 0);
+  const metodos: Record<string, string> = {
+    unanimidade: "Unanimidade", maioria_simples: "Maioria simples",
+    maioria_absoluta: "Maioria absoluta", dois_tercos: "Dois terços",
+    quorum_aprovacao: "Quórum de aprovação", lider: "Aprovação simples",
+  };
   const corBarra = (k: string) =>
     k === "sim" ? "bg-marca-600" : k === "nao" ? "bg-red-500" : k === "abstencao" ? "bg-slate-400" : "bg-marca-500";
 
@@ -97,10 +103,16 @@ export default function PautaDetalhe() {
             </Badge>
           )}
           <Badge cor={encerrada ? "cinza" : "marca"}>{encerrada ? "Encerrada" : "Aberta"}</Badge>
+          <Badge cor="azul">{metodos[pauta.metodo_votacao] || pauta.metodo_votacao}</Badge>
           {pauta.aplicada_em && <Badge cor="ouro">✓ Aplicada</Badge>}
         </div>
         <h1 className="text-2xl font-extrabold text-slate-800 dark:text-slate-100">{pauta.titulo}</h1>
         <p className="text-sm text-slate-500">{pauta.igreja_nome}</p>
+        {semQuorum && (
+          <p className="mt-3 rounded-lg bg-amber-50 p-2 text-sm font-semibold text-amber-800 dark:bg-amber-900/20 dark:text-amber-200">
+            ⏳ Expirou sem atingir o quórum. {pauta.criada_por_detalhe ? "O proponente pode reenviar." : ""}
+          </p>
+        )}
         {pauta.descricao && <p className="mt-3 whitespace-pre-wrap text-slate-600 dark:text-slate-300">{pauta.descricao}</p>}
         {pauta.prazo_votacao && <p className="mt-2 text-xs text-slate-400">Prazo: {formatData(pauta.prazo_votacao)}</p>}
         {pauta.quorum_minimo && (
@@ -186,7 +198,32 @@ export default function PautaDetalhe() {
         </Card>
       )}
 
-      {/* Resultado */}
+      {/* Anonimato: durante a votação não mostra contagem, só participação. */}
+      {!pauta.mostra_resultado && (
+        <Card className="p-5">
+          <div className="mb-3 rounded-xl bg-amber-50 p-3 text-center text-sm font-semibold text-amber-900 dark:bg-amber-900/20 dark:text-amber-200">
+            🔒 Votação anônima. Os votos serão revelados após o encerramento.
+          </div>
+          <p className="text-center text-lg font-bold text-slate-800 dark:text-slate-100">
+            {pauta.total_votos} de {pauta.total_eleitores} anciões já votaram
+          </p>
+          {pauta.pendentes.length > 0 && (
+            <div className="mt-3">
+              <p className="mb-1 text-sm font-semibold text-slate-500">Ainda não votaram:</p>
+              <div className="flex flex-wrap gap-2">
+                {pauta.pendentes.map((p) => (
+                  <span key={p.id} className="rounded-full bg-slate-100 px-3 py-1 text-sm text-slate-600 dark:bg-slate-800 dark:text-slate-300">
+                    {p.nome}
+                  </span>
+                ))}
+              </div>
+            </div>
+          )}
+        </Card>
+      )}
+
+      {/* Resultado (visível quando não anônima ou após encerrar) */}
+      {pauta.mostra_resultado && pauta.resultado && (
       <Card className="p-5">
         <h2 className="mb-3 font-bold text-slate-800 dark:text-slate-100">Resultado ({total} votos)</h2>
         <div className="space-y-3">
@@ -208,6 +245,7 @@ export default function PautaDetalhe() {
           </p>
         )}
       </Card>
+      )}
 
       {/* Votos (oculta autores se anônima) */}
       {votos.length > 0 && (

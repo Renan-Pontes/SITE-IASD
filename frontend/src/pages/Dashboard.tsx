@@ -15,6 +15,7 @@ import { useAuth } from "../auth/AuthContext";
 import type { Dashboard as DashboardData } from "../lib/types";
 import { EventoCard } from "../components/EventoCard";
 import { MinhasPendencias } from "../components/MinhasPendencias";
+import { MinhasPropostas } from "../components/MinhasPropostas";
 import { Botao, Card, SkeletonLista, Vazio } from "../ui/components";
 
 export default function Dashboard() {
@@ -44,6 +45,7 @@ export default function Dashboard() {
       </div>
 
       <MinhasPendencias />
+      <MinhasPropostas />
 
       {/* Atalhos da liderança */}
       {data?.sou_lideranca && temPendencias && (
