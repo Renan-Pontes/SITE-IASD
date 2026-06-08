@@ -70,6 +70,22 @@ Quem propõe (mesmo não sendo ancião) acompanha a própria pauta:
   durante a votação anônima).
 - É **notificado** quando a pauta abre, encerra e é aplicada.
 
+## Fórum de discussão (por pauta)
+
+Cada pauta tem uma aba **Discussão** (estilo fórum, não chat realtime) para tirar
+dúvidas e anexar documentos **antes/durante** o voto:
+- **Quem comenta/anexa:** anciões da igreja + o proponente + admins. Membros comuns
+  não comentam (a governança é dos anciões).
+- **Markdown** sanitizado (sem HTML cru); links abrem em nova aba.
+- **Anexos:** jpg/png/gif/webp/pdf/docx/xlsx/txt/md, até 10 MB, 5 por comentário.
+  Imagens viram preview (lightbox); documentos viram download.
+- O autor pode **editar** (marca "(editado)") e **excluir** (soft-delete) o próprio
+  comentário; admin também pode excluir.
+- **Anonimato:** apenas o **voto** é anônimo. Os comentários do fórum **sempre
+  mostram o autor** (transparência da discussão).
+- Atualização **manual** (botão "Atualizar") — sem WebSocket. Novo comentário
+  notifica os anciões e o proponente.
+
 ## Exceção (bootstrapping)
 
 `super_admin` pode criar grupo/sala **direto** (sem votação) com `?direto=1` — usado

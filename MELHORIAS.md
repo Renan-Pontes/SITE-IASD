@@ -81,6 +81,27 @@ os fluxos principais jogáveis. Lista do que ainda dá pra evoluir.
   top-bar somem), conteúdo em coluna confortável, grids de igrejas/grupos, tabela
   de membros densa, tipografia levemente maior — sem alterar a experiência mobile.
 - ✅ **ErrorBoundary** (um erro de página não derruba o app).
+
+### Rodada de governança (Canal dos Anciões — completo)
+- ✅ **Métodos de votação por pauta**: unanimidade (1 não rejeita na hora),
+  maioria simples/absoluta, dois terços, quórum de aprovação, aprovação simples.
+  Decisão e fechamento automáticos conforme o método.
+- ✅ **Voto neutro** (BUG corrigido): nada pré-selecionado; "alterar meu voto".
+- ✅ **Anonimato real**: pauta anônima não mostra contagem parcial durante a
+  votação (só participação + pendentes); revela ao encerrar, sem autores.
+- ✅ **Enforcement** (BUG): criar grupo/sala vira proposta no Canal (não grava
+  direto); aplica automático se aprovada. Edição de igreja por ancião via Canal.
+- ✅ **Acompanhamento do proponente**: "Minhas propostas em votação" no dashboard,
+  `/api/pautas/minhas/`, notificações de abertura/encerramento/aplicação.
+- ✅ **Categorias** de pauta + **página de pautas com 3 abas** (aguardando/andamento/
+  histórico) e filtros.
+- ✅ **Fórum por pauta**: discussão com Markdown (sanitizado) + anexos (imagens com
+  lightbox, documentos com download), editar/excluir, permissões por papel.
+- ✅ **Agenda**: modal do dia (RSVP direto + navegação) e visão de semana 7 colunas.
+- ✅ **Seguir igreja** (≠ ser membro) + calendário consolidado curado (membro +
+  seguidas + próximas) + programação pública visível a qualquer um.
+- ✅ **Cores bicolores** do evento (centro = igreja, anel = grupo) + color pickers.
+- ✅ **Atalhos de teclado** (/ buscar, ? ajuda, Esc fecha) + FAB/descoberta redundante.
 - ✅ **Agenda**: modal do dia (eventos completos + RSVP direto + navegação) e
   visão de semana redesenhada (7 colunas responsivas, cor por grupo, hoje em verde).
 - ✅ **Canal dos Anciões**: propostas (alterar igreja / criar grupo / criar sala /

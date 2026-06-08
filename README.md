@@ -24,6 +24,9 @@ votação de pautas pelos anciões e uma agenda digital para todos os membros.
   automaticamente**; além de **enquetes livres** com opções customizadas.
 - **Pautas** com **votação** (sim/não/abstenção ou opções custom), **voto secreto**,
   **justificativa**, **quórum** com fechamento automático, **timeline** e resultado.
+- **Seguir igrejas** (curadoria de feed, ≠ ser membro), **calendário consolidado**
+  (membro + seguidas + próximas) e **cores bicolores** por igreja/grupo.
+- **Fórum por pauta** (discussão com Markdown + anexos) antes/durante a votação.
 - **Mapa** das igrejas (Leaflet/OSM) e **busca textual global**.
 - **Notificações** in-app, **chat de grupo** e **log de auditoria** para governança.
 - **PWA instalável**, **upload de fotos**, **exportar evento `.ics`**,
@@ -45,7 +48,8 @@ votação de pautas pelos anciões e uma agenda digital para todos os membros.
 
 Documentação detalhada em [`docs/`](docs/):
 [Esquema do banco](docs/SCHEMA.md) · [Permissões/RBAC](docs/RBAC.md) ·
-[Princípios de UX](docs/UX.md) · [Deploy](docs/DEPLOY.md).
+[Princípios de UX](docs/UX.md) · [Deploy](docs/DEPLOY.md) ·
+[Governança/Canal dos Anciões](docs/GOVERNANCA.md).
 
 ---
 
