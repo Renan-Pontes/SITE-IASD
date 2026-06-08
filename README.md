@@ -19,8 +19,11 @@ votação de pautas pelos anciões e uma agenda digital para todos os membros.
   Confirmação de presença ("EU VOU"), eventos públicos/privados e recorrência.
 - **Calendário** em **mês / semana / dia**, consolidado e com expansão de
   recorrências (inclui mensal "Nth weekday", ex.: 2ª terça do mês), com filtros.
-- **Pautas** dos anciões com **votação** (sim/não/abstenção), **voto secreto**
-  opcional, **quórum** com fechamento automático e resultado em tempo real.
+- **Canal dos Anciões**: propostas de mudança (alterar igreja, criar grupo/sala,
+  agendar evento) que viram **pauta de votação** e, se aprovadas, **aplicam-se
+  automaticamente**; além de **enquetes livres** com opções customizadas.
+- **Pautas** com **votação** (sim/não/abstenção ou opções custom), **voto secreto**,
+  **justificativa**, **quórum** com fechamento automático, **timeline** e resultado.
 - **Mapa** das igrejas (Leaflet/OSM) e **busca textual global**.
 - **Notificações** in-app, **chat de grupo** e **log de auditoria** para governança.
 - **PWA instalável**, **upload de fotos**, **exportar evento `.ics`**,

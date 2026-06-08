@@ -81,5 +81,12 @@ os fluxos principais jogáveis. Lista do que ainda dá pra evoluir.
   top-bar somem), conteúdo em coluna confortável, grids de igrejas/grupos, tabela
   de membros densa, tipografia levemente maior — sem alterar a experiência mobile.
 - ✅ **ErrorBoundary** (um erro de página não derruba o app).
+- ✅ **Agenda**: modal do dia (eventos completos + RSVP direto + navegação) e
+  visão de semana redesenhada (7 colunas responsivas, cor por grupo, hoje em verde).
+- ✅ **Canal dos Anciões**: propostas (alterar igreja / criar grupo / criar sala /
+  agendar evento) que viram pauta e **aplicam-se automaticamente** se aprovadas;
+  **enquetes livres** com opções custom; justificativa no voto; timeline; card
+  "pautas aguardando seu voto" no dashboard. Edição de dados da igreja por ancião
+  passa pelo Canal (admin edita direto).
 - ✅ **Deploy preparado**: Vercel (frontend) + PythonAnywhere (backend), WhiteNoise,
   `.env` via dotenv, healthcheck `/api/health/`, `vercel.json` (SPA). Veja `docs/DEPLOY.md`.
