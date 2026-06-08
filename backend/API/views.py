@@ -996,7 +996,20 @@ class PautaViewSet(viewsets.ModelViewSet):
 
             raise PermissionDenied("Apenas anciões/liderança criam pautas.")
         pauta = serializer.save(criada_por=self.request.user)
-        log_acao(self.request.user, "criar_pauta", "Pauta", pauta.id)
+        log_acao(self.request.user, "criar_pauta", "Pauta", pauta.id, {"tipo": pauta.tipo})
+        # Notifica os anciões/liderança da igreja sobre a nova pauta.
+        for lider in Membro.objects.filter(
+            igreja=igreja,
+            status=StatusVinculo.ATIVO,
+            papel__in=[PapelIgreja.ANCIAO, PapelIgreja.PASTOR, PapelIgreja.ADMIN],
+        ).exclude(usuario=self.request.user).select_related("usuario"):
+            notificar(
+                lider.usuario,
+                "Nova pauta para votar",
+                f"“{pauta.titulo}” aguarda seu voto no Canal dos Anciões.",
+                tipo="pauta_nova",
+                link=f"/igreja/{igreja.id}/canal",
+            )
 
     def update(self, request, *args, **kwargs):
         pauta = self.get_object()
@@ -1014,15 +1027,19 @@ class PautaViewSet(viewsets.ModelViewSet):
         if pauta.status == StatusPauta.ENCERRADA or pauta.expirada:
             return Response({"detail": "Votação encerrada."}, status=400)
         opcao = request.data.get("opcao")
-        if opcao not in OpcaoVoto.values:
+        # Enquete com opções customizadas valida contra elas; senão, sim/não/abstenção.
+        validas = (
+            pauta.opcoes
+            if (pauta.tipo == "enquete_livre" and pauta.opcoes)
+            else OpcaoVoto.values
+        )
+        if opcao not in validas:
             return Response({"opcao": "Opção inválida."}, status=400)
+        comentario = request.data.get("comentario", "") if pauta.permitir_justificativa else ""
         voto, _ = Voto.objects.update_or_create(
             pauta=pauta,
             usuario=request.user,
-            defaults={
-                "opcao": opcao,
-                "comentario": request.data.get("comentario", ""),
-            },
+            defaults={"opcao": opcao, "comentario": comentario},
         )
         log_acao(request.user, "votar", "Pauta", pauta.id)
         return Response(VotoSerializer(voto, context={"request": request}).data)
@@ -1243,6 +1260,14 @@ def dashboard(request):
     pautas_abertas = Pauta.objects.filter(
         igreja_id__in=igrejas_lidera, status=StatusPauta.ABERTA
     ).count()
+    # Pautas abertas que o usuário ainda não votou (aguardando seu voto).
+    pautas_aguardando = (
+        Pauta.objects.filter(igreja_id__in=igrejas_lidera, status=StatusPauta.ABERTA)
+        .exclude(votos__usuario=user)
+        .select_related("igreja", "criada_por")
+        .prefetch_related("votos")
+        .order_by("-criado_em")[:10]
+    )
 
     ctx = {"request": request}
     return Response(
@@ -1258,6 +1283,9 @@ def dashboard(request):
                 "membros": membros_pendentes,
                 "pautas_abertas": pautas_abertas,
             },
+            "pautas_aguardando": PautaSerializer(
+                pautas_aguardando, many=True, context=ctx
+            ).data,
             "sou_lideranca": len(igrejas_lidera) > 0,
         }
     )

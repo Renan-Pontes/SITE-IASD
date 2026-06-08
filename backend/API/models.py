@@ -91,6 +91,15 @@ class StatusPauta(models.TextChoices):
     ENCERRADA = "encerrada", "Encerrada"
 
 
+class TipoPauta(models.TextChoices):
+    ALTERACAO_IGREJA = "alteracao_igreja", "Alteração de dados da igreja"
+    CRIAR_GRUPO = "criar_grupo", "Criar grupo"
+    CRIAR_SALA = "criar_sala", "Criar sala/local"
+    AGENDAR_EVENTO = "agendar_evento", "Agendar evento"
+    ENQUETE_LIVRE = "enquete_livre", "Enquete livre"
+    OUTRA = "outra", "Outra deliberação"
+
+
 class OpcaoVoto(models.TextChoices):
     SIM = "sim", "Sim"
     NAO = "nao", "Não"
@@ -485,9 +494,17 @@ class Pauta(models.Model):
         null=True,
         related_name="pautas_criadas",
     )
+    tipo = models.CharField(
+        max_length=20, choices=TipoPauta.choices, default=TipoPauta.OUTRA
+    )
+    # Proposta concreta (ex.: {"antes": {...}, "depois": {...}} ou dados de criação).
+    payload = models.JSONField(null=True, blank=True)
+    # Opções customizadas para enquete_livre (lista de strings). Vazio = sim/não/abstenção.
+    opcoes = models.JSONField(null=True, blank=True)
     anonima = models.BooleanField(
         default=False, help_text="Se marcado, os votos não revelam quem votou."
     )
+    permitir_justificativa = models.BooleanField(default=True)
     prazo_votacao = models.DateTimeField(null=True, blank=True)
     quorum_minimo = models.PositiveIntegerField(
         null=True,
@@ -497,6 +514,9 @@ class Pauta(models.Model):
     status = models.CharField(
         max_length=10, choices=StatusPauta.choices, default=StatusPauta.ABERTA
     )
+    # aprovado / rejeitado / empate (ou a opção vencedora numa enquete).
+    decisao = models.CharField(max_length=50, blank=True)
+    aplicada_em = models.DateTimeField(null=True, blank=True)
     criado_em = models.DateTimeField(auto_now_add=True)
 
     class Meta:
@@ -513,15 +533,88 @@ class Pauta(models.Model):
     def quorum_atingido(self):
         return bool(self.quorum_minimo and self.votos.count() >= self.quorum_minimo)
 
+    def _computar_decisao(self):
+        """Decide o resultado: para enquete, a opção vencedora; senão sim/não."""
+        from collections import Counter
+
+        contagem = Counter(v.opcao for v in self.votos.all())
+        if self.tipo == TipoPauta.ENQUETE_LIVRE and self.opcoes:
+            vencedora = ""
+            melhor = -1
+            for op in self.opcoes:
+                n = contagem.get(op, 0)
+                if n > melhor:
+                    melhor, vencedora = n, op
+            return vencedora
+        sim, nao = contagem.get("sim", 0), contagem.get("nao", 0)
+        if sim > nao:
+            return "aprovado"
+        if nao > sim:
+            return "rejeitado"
+        return "empate"
+
     def fechar_se_necessario(self):
-        """Encerra a pauta se o quórum foi atingido ou o prazo expirou."""
+        """Encerra a pauta (quórum/prazo), computa a decisão e aplica se aprovada."""
         if self.status != StatusPauta.ABERTA:
             return False
         if self.quorum_atingido or self.expirada:
+            self.decisao = self._computar_decisao()
             self.status = StatusPauta.ENCERRADA
-            self.save(update_fields=["status"])
+            self.save(update_fields=["status", "decisao"])
+            if self.decisao == "aprovado":
+                self.aplicar()
             return True
         return False
+
+    def aplicar(self):
+        """Aplica o payload de uma pauta aprovada (idempotente)."""
+        if self.aplicada_em or self.tipo in (TipoPauta.ENQUETE_LIVRE, TipoPauta.OUTRA):
+            return
+        from django.utils.dateparse import parse_datetime
+
+        p = self.payload or {}
+        try:
+            if self.tipo == TipoPauta.ALTERACAO_IGREJA:
+                depois = p.get("depois", {})
+                campos_ok = {
+                    "nome", "descricao", "endereco", "cidade", "estado", "cep",
+                    "telefone", "email", "latitude", "longitude",
+                }
+                for k, v in depois.items():
+                    if k in campos_ok:
+                        setattr(self.igreja, k, v)
+                self.igreja.save()
+            elif self.tipo == TipoPauta.CRIAR_GRUPO:
+                Grupo.objects.create(
+                    igreja=self.igreja,
+                    nome=p.get("nome", "Novo grupo"),
+                    tipo=p.get("tipo", "ministerio"),
+                    descricao=p.get("descricao", ""),
+                )
+            elif self.tipo == TipoPauta.CRIAR_SALA:
+                Sala.objects.create(
+                    igreja=self.igreja,
+                    nome=p.get("nome", "Nova sala"),
+                    capacidade=p.get("capacidade") or None,
+                    equipamentos=p.get("equipamentos", ""),
+                )
+            elif self.tipo == TipoPauta.AGENDAR_EVENTO:
+                Evento.objects.create(
+                    igreja=self.igreja,
+                    titulo=p.get("titulo", "Evento"),
+                    descricao=p.get("descricao", ""),
+                    inicio=parse_datetime(p["inicio"]),
+                    fim=parse_datetime(p["fim"]),
+                    visibilidade=p.get("visibilidade", "publico"),
+                    status=StatusEvento.APROVADO,
+                    criado_por=self.criada_por,
+                    aprovado_por=self.criada_por,
+                )
+            self.aplicada_em = timezone.now()
+            self.save(update_fields=["aplicada_em"])
+        except Exception:
+            # Não derruba a votação se o payload estiver malformado.
+            pass
 
     def __str__(self):
         return self.titulo
@@ -532,7 +625,8 @@ class Voto(models.Model):
     usuario = models.ForeignKey(
         settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="votos"
     )
-    opcao = models.CharField(max_length=10, choices=OpcaoVoto.choices)
+    # sim/não/abstenção nas pautas padrão, ou uma das opções da enquete.
+    opcao = models.CharField(max_length=50)
     comentario = models.TextField(blank=True)
     criado_em = models.DateTimeField(auto_now_add=True)
 

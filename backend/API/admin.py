@@ -93,8 +93,8 @@ class InscricaoAdmin(admin.ModelAdmin):
 
 @admin.register(Pauta)
 class PautaAdmin(admin.ModelAdmin):
-    list_display = ["titulo", "igreja", "status", "anonima", "prazo_votacao", "criado_em"]
-    list_filter = ["status", "anonima", "igreja"]
+    list_display = ["titulo", "igreja", "tipo", "status", "decisao", "aplicada_em", "criado_em"]
+    list_filter = ["tipo", "status", "anonima", "igreja"]
     search_fields = ["titulo", "descricao"]
 
 

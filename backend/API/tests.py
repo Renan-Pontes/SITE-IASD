@@ -327,6 +327,76 @@ class QuorumTests(TestCase):
         self.assertEqual(pauta.status, "encerrada")
 
 
+class CanalAncioesTests(TestCase):
+    def setUp(self):
+        self.igreja = Igreja.objects.create(nome="IASD Canal", cidade="SP", estado="SP")
+        self.anciao = cria_user("anciao@iasd.app", "Jose Anciao")
+        Membro.objects.create(usuario=self.anciao, igreja=self.igreja, papel=PapelIgreja.ANCIAO, status=StatusVinculo.ATIVO)
+        self.pastor = cria_user("pastor@iasd.app", "Paulo Pastor")
+        Membro.objects.create(usuario=self.pastor, igreja=self.igreja, papel=PapelIgreja.PASTOR, status=StatusVinculo.ATIVO)
+        self.a = APIClient(); autentica(self.a, "anciao@iasd.app")
+        self.p = APIClient(); autentica(self.p, "pastor@iasd.app")
+
+    def _criar(self, **extra):
+        payload = {"titulo": "Proposta", "igreja": self.igreja.id, "quorum_minimo": 2}
+        payload.update(extra)
+        resp = self.a.post("/api/pautas/", payload, format="json")
+        self.assertEqual(resp.status_code, 201, resp.content)
+        return resp.data["id"]
+
+    def _aprovar(self, pauta_id):
+        self.a.post(f"/api/pautas/{pauta_id}/votar/", {"opcao": "sim"}, format="json")
+        self.p.post(f"/api/pautas/{pauta_id}/votar/", {"opcao": "sim"}, format="json")
+
+    def test_alteracao_igreja_aprovada_aplica(self):
+        pid = self._criar(
+            tipo="alteracao_igreja",
+            payload={"antes": {"nome": "IASD Canal"}, "depois": {"nome": "IASD Renovada", "cidade": "Santos"}},
+        )
+        self._aprovar(pid)
+        from API.models import Pauta
+        pauta = Pauta.objects.get(pk=pid)
+        self.assertEqual(pauta.status, "encerrada")
+        self.assertEqual(pauta.decisao, "aprovado")
+        self.assertIsNotNone(pauta.aplicada_em)
+        self.igreja.refresh_from_db()
+        self.assertEqual(self.igreja.nome, "IASD Renovada")
+        self.assertEqual(self.igreja.cidade, "Santos")
+
+    def test_criar_grupo_aprovado_cria(self):
+        pid = self._criar(tipo="criar_grupo", payload={"nome": "Coral", "tipo": "musica"})
+        self._aprovar(pid)
+        self.assertTrue(Grupo.objects.filter(igreja=self.igreja, nome="Coral").exists())
+
+    def test_rejeitada_nao_aplica(self):
+        pid = self._criar(tipo="criar_grupo", payload={"nome": "NaoVai"})
+        self.a.post(f"/api/pautas/{pid}/votar/", {"opcao": "nao"}, format="json")
+        self.p.post(f"/api/pautas/{pid}/votar/", {"opcao": "nao"}, format="json")
+        from API.models import Pauta
+        pauta = Pauta.objects.get(pk=pid)
+        self.assertEqual(pauta.decisao, "rejeitado")
+        self.assertIsNone(pauta.aplicada_em)
+        self.assertFalse(Grupo.objects.filter(nome="NaoVai").exists())
+
+    def test_enquete_livre_opcoes_custom(self):
+        pid = self._criar(
+            tipo="enquete_livre", titulo="Qual dia?",
+            opcoes=["Sábado", "Domingo"], quorum_minimo=2,
+        )
+        # opção fora da lista é rejeitada
+        resp = self.a.post(f"/api/pautas/{pid}/votar/", {"opcao": "sim"}, format="json")
+        self.assertEqual(resp.status_code, 400)
+        # votos válidos
+        self.a.post(f"/api/pautas/{pid}/votar/", {"opcao": "Sábado"}, format="json")
+        self.p.post(f"/api/pautas/{pid}/votar/", {"opcao": "Sábado"}, format="json")
+        from API.models import Pauta
+        pauta = Pauta.objects.get(pk=pid)
+        self.assertEqual(pauta.decisao, "Sábado")
+        self.assertIsNone(pauta.aplicada_em)  # enquete não aplica nada
+        resp = self.a.get(f"/api/pautas/{pid}/")
+        self.assertEqual(resp.data["resultado"]["Sábado"], 2)
+
+
 class GrupoChatTests(TestCase):
     def setUp(self):
         self.igreja = Igreja.objects.create(nome="IASD Grupo", cidade="SP", estado="SP")

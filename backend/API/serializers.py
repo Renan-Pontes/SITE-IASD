@@ -474,23 +474,33 @@ class PautaSerializer(serializers.ModelSerializer):
             "igreja_nome",
             "criada_por",
             "criada_por_detalhe",
+            "tipo",
+            "payload",
+            "opcoes",
             "anonima",
+            "permitir_justificativa",
             "prazo_votacao",
             "quorum_minimo",
             "quorum_atingido",
             "status",
+            "decisao",
+            "aplicada_em",
             "resultado",
             "meu_voto",
             "total_votos",
             "expirada",
             "criado_em",
         ]
-        read_only_fields = ["criada_por", "status", "criado_em"]
+        read_only_fields = [
+            "criada_por", "status", "decisao", "aplicada_em", "criado_em",
+        ]
 
     def get_resultado(self, obj):
-        contagem = {OpcaoVoto.SIM: 0, OpcaoVoto.NAO: 0, OpcaoVoto.ABSTENCAO: 0}
-        for v in obj.votos.all():
-            contagem[v.opcao] = contagem.get(v.opcao, 0) + 1
+        from collections import Counter
+
+        contagem = Counter(v.opcao for v in obj.votos.all())
+        if obj.tipo == "enquete_livre" and obj.opcoes:
+            return {op: contagem.get(op, 0) for op in obj.opcoes}
         return {
             "sim": contagem.get(OpcaoVoto.SIM, 0),
             "nao": contagem.get(OpcaoVoto.NAO, 0),
