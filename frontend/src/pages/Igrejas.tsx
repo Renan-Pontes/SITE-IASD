@@ -87,7 +87,7 @@ export default function Igrejas() {
         <Vazio titulo="Nenhuma igreja encontrada" descricao="Tente outro termo de busca." />
       ) : (
         <>
-          <div className="space-y-3">
+          <div className="space-y-3 lg:grid lg:grid-cols-2 lg:gap-3 lg:space-y-0 xl:grid-cols-3">
             {igrejas.map((ig) => (
               <Link key={ig.id} to={`/igreja/${ig.id}`}>
                 <Card className="flex items-center gap-4 p-4 transition hover:shadow-md">

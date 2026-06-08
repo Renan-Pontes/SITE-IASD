@@ -138,27 +138,66 @@ function Membros({ igrejaId }: { igrejaId: number }) {
 
       <section>
         <h3 className="mb-2 font-bold text-slate-600">Membros ativos ({ativos.length})</h3>
-        <div className="space-y-2">
+
+        {/* Mobile: cards */}
+        <div className="space-y-2 lg:hidden">
           {ativos.map((m) => (
             <Card key={m.id} className="flex items-center gap-3 p-3">
               <Avatar nome={m.usuario_detalhe.nome} foto={m.usuario_detalhe.foto} size={40} />
-              <span className="flex-1 truncate font-medium text-slate-700">{m.usuario_detalhe.nome}</span>
-              <select
-                className="rounded-lg border border-slate-200 px-2 py-1 text-sm"
-                value={m.papel}
-                onChange={(e) => papel(m, e.target.value)}
-              >
-                <option value="visitante">Visitante</option>
-                <option value="membro">Membro</option>
-                <option value="anciao">Ancião</option>
-                <option value="pastor">Pastor</option>
-                <option value="admin_igreja">Administrador</option>
-              </select>
+              <span className="flex-1 truncate font-medium text-slate-700 dark:text-slate-200">
+                {m.usuario_detalhe.nome}
+              </span>
+              <SelectPapel m={m} aoMudar={papel} />
             </Card>
           ))}
         </div>
+
+        {/* Desktop: tabela densa */}
+        <div className="hidden overflow-hidden rounded-xl border border-slate-100 dark:border-slate-800 lg:block">
+          <table className="w-full text-sm">
+            <thead className="bg-slate-50 text-left text-slate-500 dark:bg-slate-800">
+              <tr>
+                <th className="p-3 font-semibold">Membro</th>
+                <th className="p-3 font-semibold">Papel</th>
+              </tr>
+            </thead>
+            <tbody>
+              {ativos.map((m) => (
+                <tr key={m.id} className="border-t border-slate-100 dark:border-slate-800">
+                  <td className="p-3">
+                    <div className="flex items-center gap-2">
+                      <Avatar nome={m.usuario_detalhe.nome} foto={m.usuario_detalhe.foto} size={32} />
+                      <span className="font-medium text-slate-700 dark:text-slate-200">
+                        {m.usuario_detalhe.nome}
+                      </span>
+                    </div>
+                  </td>
+                  <td className="p-3">
+                    <SelectPapel m={m} aoMudar={papel} />
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
       </section>
     </div>
+  );
+}
+
+function SelectPapel({ m, aoMudar }: { m: Membro; aoMudar: (m: Membro, papel: string) => void }) {
+  return (
+    <select
+      className="rounded-lg border border-slate-200 bg-white px-2 py-1 text-sm dark:border-slate-700 dark:bg-slate-800"
+      value={m.papel}
+      onChange={(e) => aoMudar(m, e.target.value)}
+    >
+      <option value="visitante">Visitante</option>
+      <option value="membro">Membro</option>
+      <option value="anciao">Ancião</option>
+      <option value="pastor">Pastor</option>
+      <option value="admin_igreja">Administrador</option>
+    </select>
   );
 }
 

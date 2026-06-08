@@ -66,13 +66,13 @@ export default function Grupos() {
           {meus.length > 0 && (
             <section>
               <h2 className="mb-2 font-bold text-slate-600">Meus grupos</h2>
-              <div className="space-y-3">{meus.map(renderGrupo)}</div>
+              <div className="space-y-3 lg:grid lg:grid-cols-2 lg:gap-3 lg:space-y-0">{meus.map(renderGrupo)}</div>
             </section>
           )}
           {outros.length > 0 && (
             <section>
               <h2 className="mb-2 font-bold text-slate-600">Descobrir</h2>
-              <div className="space-y-3">{outros.map(renderGrupo)}</div>
+              <div className="space-y-3 lg:grid lg:grid-cols-2 lg:gap-3 lg:space-y-0">{outros.map(renderGrupo)}</div>
             </section>
           )}
         </>

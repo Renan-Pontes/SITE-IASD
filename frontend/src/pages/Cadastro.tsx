@@ -51,7 +51,7 @@ export default function Cadastro() {
   return (
     <div className="flex min-h-screen flex-col bg-marca-700">
       <div className="flex flex-1 flex-col justify-center px-6 py-10">
-        <div className="mx-auto w-full max-w-md">
+        <div className="mx-auto w-full max-w-md sm:max-w-xl">
           <div className="mb-6 text-center text-white">
             <h1 className="text-3xl font-extrabold">Criar conta</h1>
             <p className="mt-1 text-marca-100">Participe da comunidade da sua igreja.</p>
@@ -60,27 +60,29 @@ export default function Cadastro() {
             onSubmit={submeter}
             className="space-y-4 rounded-2xl bg-white p-6 text-slate-800 shadow-xl"
           >
-            <Campo label="Nome completo">
-              <input
-                className="input"
-                value={form.nome}
-                onChange={set("nome")}
-                required
-                placeholder="Maria da Silva"
-                autoComplete="name"
-              />
-            </Campo>
-            <Campo label="E-mail">
-              <input
-                type="email"
-                className="input"
-                value={form.email}
-                onChange={set("email")}
-                required
-                placeholder="voce@email.com"
-                autoComplete="email"
-              />
-            </Campo>
+            <div className="grid gap-4 sm:grid-cols-2">
+              <Campo label="Nome completo">
+                <input
+                  className="input"
+                  value={form.nome}
+                  onChange={set("nome")}
+                  required
+                  placeholder="Maria da Silva"
+                  autoComplete="name"
+                />
+              </Campo>
+              <Campo label="E-mail">
+                <input
+                  type="email"
+                  className="input"
+                  value={form.email}
+                  onChange={set("email")}
+                  required
+                  placeholder="voce@email.com"
+                  autoComplete="email"
+                />
+              </Campo>
+            </div>
             <Campo label="Telefone (opcional)">
               <input
                 className="input"

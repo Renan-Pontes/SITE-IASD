@@ -8,6 +8,14 @@
   font-size: 16px;
 }
 
+/* Leve aumento no desktop, mantendo a sensação acolhedora.
+   O modo "fonte grande" tem especificidade maior e continua prevalecendo. */
+@media (min-width: 1280px) {
+  :root {
+    font-size: 17px;
+  }
+}
+
 html.texto-grande {
   font-size: 19px;
 }
