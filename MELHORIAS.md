@@ -77,5 +77,9 @@ os fluxos principais jogáveis. Lista do que ainda dá pra evoluir.
   notificação ao usuário na rejeição (antes silenciosa) com motivo opcional.
 - ✅ Confirmado: é **webapp puro** (sem Capacitor/React Native) — usa APIs do
   browser (Geolocation, ServiceWorker), mobile-first, PWA.
+- ✅ **Layout responsivo desktop**: sidebar persistente em ≥1024px (bottom-nav e
+  top-bar somem), conteúdo em coluna confortável, grids de igrejas/grupos, tabela
+  de membros densa, tipografia levemente maior — sem alterar a experiência mobile.
+- ✅ **ErrorBoundary** (um erro de página não derruba o app).
 - ✅ **Deploy preparado**: Vercel (frontend) + PythonAnywhere (backend), WhiteNoise,
   `.env` via dotenv, healthcheck `/api/health/`, `vercel.json` (SPA). Veja `docs/DEPLOY.md`.
