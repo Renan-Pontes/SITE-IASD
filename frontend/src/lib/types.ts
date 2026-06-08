@@ -229,6 +229,27 @@ export interface Voto {
   criado_em: string;
 }
 
+export interface PautaAnexo {
+  id: number;
+  arquivo: string | null;
+  tipo_mime: string;
+  tamanho_bytes: number;
+  nome_original: string;
+  criado_em: string;
+}
+
+export interface PautaComentario {
+  id: number;
+  pauta: number;
+  autor: number;
+  autor_detalhe: UsuarioMini;
+  texto: string;
+  anexos: PautaAnexo[];
+  editado: boolean;
+  criado_em: string;
+  editado_em: string | null;
+}
+
 export interface Mensagem {
   id: number;
   grupo: number;

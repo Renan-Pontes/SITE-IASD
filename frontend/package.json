@@ -10,9 +10,12 @@
     "lint": "tsc --noEmit"
   },
   "dependencies": {
+    "@types/dompurify": "^3.0.5",
     "@types/leaflet": "^1.9.21",
+    "dompurify": "^3.4.8",
     "leaflet": "^1.9.4",
     "lucide-react": "^0.460.0",
+    "marked": "^18.0.5",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
     "react-leaflet": "^4.2.1",

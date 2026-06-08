@@ -114,6 +114,11 @@ export async function uploadArquivo<T = any>(path: string, file: File, campo = "
   return request<T>(path, { method: "POST", body: fd, raw: true });
 }
 
+// POST multipart com FormData arbitrário (texto + vários arquivos).
+export async function postForm<T = any>(path: string, fd: FormData) {
+  return request<T>(path, { method: "POST", body: fd, raw: true });
+}
+
 // Baixa um arquivo (ex.: .ics) enviando o token, salvando como download.
 export async function baixarComAuth(path: string, nomeArquivo: string) {
   const headers: Record<string, string> = {};

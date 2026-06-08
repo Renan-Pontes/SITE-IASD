@@ -10,6 +10,7 @@ import { useToast } from "../ui/Toast";
 import type { Pauta, Voto } from "../lib/types";
 import { Botao, Card, Carregando, Badge, Avatar } from "../ui/components";
 import { Confirmacao } from "../ui/Modal";
+import { PautaDiscussao } from "../components/PautaDiscussao";
 import { formatData, formatHora, rotulo } from "../lib/format";
 
 export default function PautaDetalhe() {
@@ -23,6 +24,7 @@ export default function PautaDetalhe() {
   const [salvando, setSalvando] = useState(false);
   const [confirmarEncerrar, setConfirmarEncerrar] = useState(false);
   const [alterando, setAlterando] = useState(false);
+  const [aba, setAba] = useState<"votacao" | "discussao">("votacao");
 
   const recarregar = () => api.get<Pauta>(`/api/pautas/${id}/`).then(setPauta);
   const carregarVotos = () =>
@@ -122,6 +124,25 @@ export default function PautaDetalhe() {
         )}
       </Card>
 
+      {/* Abas: Discussão (fórum) | Votação */}
+      <div className="flex gap-1 rounded-xl bg-slate-100 p-1 dark:bg-slate-800">
+        {([["votacao", "Votação"], ["discussao", "Discussão"]] as ["votacao" | "discussao", string][]).map(([k, t]) => (
+          <button
+            key={k}
+            onClick={() => setAba(k)}
+            className={`flex-1 rounded-lg py-2 text-sm font-semibold transition ${
+              aba === k ? "bg-white text-marca-700 shadow-sm dark:bg-slate-700 dark:text-marca-300" : "text-slate-500"
+            }`}
+          >
+            {t}
+          </button>
+        ))}
+      </div>
+
+      {aba === "discussao" && <PautaDiscussao pautaId={pauta.id} />}
+
+      {aba === "votacao" && (
+      <>
       {/* Proposta (diff) para alteração de igreja */}
       {pauta.tipo === "alteracao_igreja" && pauta.payload?.depois && (
         <Card className="p-4">
@@ -280,6 +301,8 @@ export default function PautaDetalhe() {
         <Botao variante="secondary" full onClick={() => setConfirmarEncerrar(true)}>
           <Check size={18} /> Encerrar votação
         </Botao>
+      )}
+      </>
       )}
 
       <Confirmacao
