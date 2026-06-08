@@ -6,7 +6,6 @@ import {
   UserPlus,
   Vote,
   MapPin,
-  Plus,
   ChevronRight,
   Gavel,
 } from "lucide-react";
@@ -168,9 +167,6 @@ export default function Dashboard() {
         </section>
       )}
 
-      <Link to="/evento/novo" className="btn-primary fixed bottom-20 right-4 z-20 shadow-lg !rounded-full !px-5">
-        <Plus size={22} /> Evento
-      </Link>
     </div>
   );
 }

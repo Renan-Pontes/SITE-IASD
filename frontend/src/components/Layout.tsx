@@ -1,9 +1,10 @@
 import { useEffect, useState } from "react";
-import { Link, NavLink, Outlet, useLocation } from "react-router-dom";
-import { Home, CalendarDays, Church, Users, Bell, User, Search } from "lucide-react";
+import { Link, NavLink, Outlet, useLocation, useNavigate } from "react-router-dom";
+import { Home, CalendarDays, Church, Users, Bell, User, Search, Plus, Keyboard } from "lucide-react";
 import { useAuth } from "../auth/AuthContext";
 import { api } from "../api/client";
 import { Avatar } from "../ui/components";
+import { Modal } from "../ui/Modal";
 
 // Itens de navegação compartilhados entre a bottom-nav (mobile) e a sidebar (desktop).
 const ITENS = [
@@ -128,6 +129,13 @@ function Sidebar({ naoLidas }: { naoLidas: number }) {
       <div className="p-5">
         <Logo />
       </div>
+      {logado && (
+        <div className="px-3 pb-2">
+          <Link to="/evento/novo" className="btn-primary w-full !py-2.5" title="Criar evento">
+            <Plus size={18} /> Criar evento
+          </Link>
+        </div>
+      )}
       <nav className="flex-1 space-y-1 px-3">
         {ITENS.map(({ to, icone: Icone, texto, end }) => (
           <NavLink
@@ -164,6 +172,9 @@ function Sidebar({ naoLidas }: { naoLidas: number }) {
         )}
       </nav>
       <div className="border-t border-slate-100 p-3 dark:border-slate-800">
+        <p className="mb-2 flex items-center gap-1 px-2 text-xs text-slate-400">
+          <Keyboard size={14} /> Atalhos: <kbd className="rounded bg-slate-100 px-1 dark:bg-slate-800">/</kbd> buscar · <kbd className="rounded bg-slate-100 px-1 dark:bg-slate-800">?</kbd> ajuda
+        </p>
         {logado ? (
           <Link to="/perfil" className="flex items-center gap-3 rounded-xl p-2 hover:bg-slate-100 dark:hover:bg-slate-800">
             <Avatar nome={me?.profile.nome || "?"} foto={me?.profile.foto} size={40} />
@@ -186,8 +197,31 @@ function Sidebar({ naoLidas }: { naoLidas: number }) {
 
 export function Layout() {
   const { pathname } = useLocation();
+  const { logado } = useAuth();
+  const nav = useNavigate();
   const naoLidas = useNaoLidas();
+  const [ajuda, setAjuda] = useState(false);
   useEffect(() => window.scrollTo(0, 0), [pathname]);
+
+  // Atalhos de teclado globais.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      const tag = (e.target as HTMLElement)?.tagName;
+      const digitando = tag === "INPUT" || tag === "TEXTAREA" || (e.target as HTMLElement)?.isContentEditable;
+      if (digitando) return;
+      if (e.key === "/") {
+        e.preventDefault();
+        nav("/buscar");
+      } else if (e.key === "?") {
+        e.preventDefault();
+        setAjuda((a) => !a);
+      } else if (e.key.toLowerCase() === "h" && !e.metaKey && !e.ctrlKey) {
+        nav("/");
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [nav]);
 
   return (
     <div className="lg:flex">
@@ -199,6 +233,26 @@ export function Layout() {
         </main>
         <BottomNav />
       </div>
+
+      {/* FAB "Novo evento" (mobile, redundância de descoberta) */}
+      {logado && (
+        <Link
+          to="/evento/novo"
+          className="btn-primary fixed bottom-20 right-4 z-20 !rounded-full !px-5 shadow-lg lg:hidden"
+          title="Criar evento"
+        >
+          <Plus size={22} /> Evento
+        </Link>
+      )}
+
+      <Modal aberto={ajuda} aoFechar={() => setAjuda(false)} titulo="Atalhos de teclado">
+        <ul className="space-y-2 text-sm text-slate-600 dark:text-slate-300">
+          <li><kbd className="rounded bg-slate-100 px-2 py-0.5 dark:bg-slate-800">/</kbd> — abrir a busca</li>
+          <li><kbd className="rounded bg-slate-100 px-2 py-0.5 dark:bg-slate-800">H</kbd> — ir para o início</li>
+          <li><kbd className="rounded bg-slate-100 px-2 py-0.5 dark:bg-slate-800">Esc</kbd> — fechar janelas</li>
+          <li><kbd className="rounded bg-slate-100 px-2 py-0.5 dark:bg-slate-800">?</kbd> — mostrar esta ajuda</li>
+        </ul>
+      </Modal>
     </div>
   );
 }
