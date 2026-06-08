@@ -534,6 +534,53 @@ class EnforcementGovernancaTests(TestCase):
         self.assertEqual(Sala.objects.filter(nome="Anexo").count(), 0)
 
 
+class ForumPautaTests(TestCase):
+    def setUp(self):
+        self.igreja = Igreja.objects.create(nome="IASD Forum", cidade="SP", estado="SP")
+        self.anciao = cria_user("anciao@iasd.app", "Jose Anciao")
+        Membro.objects.create(usuario=self.anciao, igreja=self.igreja, papel=PapelIgreja.ANCIAO, status=StatusVinculo.ATIVO)
+        self.membro = cria_user("membro@iasd.app", "Maria Membro")
+        Membro.objects.create(usuario=self.membro, igreja=self.igreja, papel=PapelIgreja.MEMBRO, status=StatusVinculo.ATIVO)
+        from API.models import Pauta
+        self.pauta = Pauta.objects.create(titulo="P", igreja=self.igreja, criada_por=self.anciao)
+
+    def test_anciao_comenta_e_edita(self):
+        c = APIClient(); autentica(c, "anciao@iasd.app")
+        r = c.post("/api/pauta-comentarios/", {"pauta": self.pauta.id, "texto": "Olá **fórum**"}, format="json")
+        self.assertEqual(r.status_code, 201, r.content)
+        cid = r.data["id"]
+        self.assertFalse(r.data["editado"])
+        e = c.patch(f"/api/pauta-comentarios/{cid}/", {"texto": "editado"}, format="json")
+        self.assertTrue(e.data["editado"])
+
+    def test_membro_normal_nao_comenta(self):
+        c = APIClient(); autentica(c, "membro@iasd.app")
+        r = c.post("/api/pauta-comentarios/", {"pauta": self.pauta.id, "texto": "oi"}, format="json")
+        self.assertEqual(r.status_code, 403)
+
+    def test_soft_delete(self):
+        from API.models import PautaComentario
+        c = APIClient(); autentica(c, "anciao@iasd.app")
+        r = c.post("/api/pauta-comentarios/", {"pauta": self.pauta.id, "texto": "x"}, format="json")
+        cid = r.data["id"]
+        c.delete(f"/api/pauta-comentarios/{cid}/")
+        self.assertIsNotNone(PautaComentario.objects.get(pk=cid).deletado_em)
+        # não aparece mais na listagem
+        lst = c.get(f"/api/pauta-comentarios/?pauta={self.pauta.id}")
+        ids = [x["id"] for x in (lst.data.get("results", lst.data))]
+        self.assertNotIn(cid, ids)
+
+    def test_anexo_invalido_recusado(self):
+        from django.core.files.uploadedfile import SimpleUploadedFile
+        import tempfile
+        from django.test import override_settings
+        c = APIClient(); autentica(c, "anciao@iasd.app")
+        exe = SimpleUploadedFile("virus.exe", b"MZ", content_type="application/octet-stream")
+        with override_settings(MEDIA_ROOT=tempfile.mkdtemp()):
+            r = c.post("/api/pauta-comentarios/", {"pauta": self.pauta.id, "texto": "x", "anexos": exe}, format="multipart")
+            self.assertEqual(r.status_code, 400)
+
+
 class GrupoChatTests(TestCase):
     def setUp(self):
         self.igreja = Igreja.objects.create(nome="IASD Grupo", cidade="SP", estado="SP")

@@ -34,6 +34,8 @@ from .models import (
     OpcaoVoto,
     PapelIgreja,
     Pauta,
+    PautaAnexo,
+    PautaComentario,
     Recorrencia,
     Sala,
     StatusEvento,
@@ -46,6 +48,8 @@ from .models import (
 from .permissions import IsSuperAdmin
 from .serializers import (
     AuditLogSerializer,
+    PautaAnexoSerializer,
+    PautaComentarioSerializer,
     EventoSerializer,
     GrupoMembroSerializer,
     GrupoSerializer,
@@ -148,6 +152,32 @@ def _abrir_pauta_criacao(user, igreja, tipo, titulo, categoria, payload, metodo=
             tipo="pauta_nova", link=f"/igreja/{igreja.id}/canal",
         )
     return pauta
+
+
+ANEXO_EXTS = {".jpg", ".jpeg", ".png", ".gif", ".webp", ".pdf", ".docx", ".xlsx", ".txt", ".md"}
+ANEXO_MAX = 10 * 1024 * 1024
+
+
+def _validar_anexo(arquivo):
+    """Valida extensão e tamanho. Retorna (ok, erro)."""
+    import os
+
+    nome = (arquivo.name or "").lower()
+    ext = os.path.splitext(nome)[1]
+    if ext not in ANEXO_EXTS:
+        return False, f"Tipo não permitido ({ext})."
+    if arquivo.size > ANEXO_MAX:
+        return False, "Arquivo maior que 10 MB."
+    # Imagens passam por verificação extra do Pillow.
+    if ext in {".jpg", ".jpeg", ".png", ".gif", ".webp"}:
+        try:
+            from PIL import Image
+
+            Image.open(arquivo).verify()
+            arquivo.seek(0)
+        except Exception:
+            return False, "Imagem inválida."
+    return True, ""
 
 
 def _resposta_pauta_aberta(pauta):
@@ -1214,6 +1244,96 @@ class PautaViewSet(viewsets.ModelViewSet):
         page = self.paginate_queryset(qs)
         ser = PautaSerializer(page if page is not None else qs, many=True, context={"request": request})
         return self.get_paginated_response(ser.data) if page is not None else Response(ser.data)
+
+
+# --------------------------------------------------------------------------- #
+# Fórum de pauta (discussão + anexos)
+# --------------------------------------------------------------------------- #
+class PautaComentarioViewSet(viewsets.ModelViewSet):
+    serializer_class = PautaComentarioSerializer
+    permission_classes = [IsAuthenticated]
+    filterset_fields = ["pauta"]
+
+    def _pode_acessar(self, pauta):
+        u = self.request.user
+        return bool(pauta) and (
+            roles.eh_lideranca_igreja(u, pauta.igreja)
+            or pauta.criada_por_id == u.id
+            or roles.is_super(u)
+        )
+
+    def get_queryset(self):
+        user = self.request.user
+        qs = (
+            PautaComentario.objects.filter(deletado_em__isnull=True)
+            .select_related("autor", "autor__profile", "pauta", "pauta__igreja")
+            .prefetch_related("anexos")
+        )
+        if not roles.is_super(user):
+            igrejas = roles.igrejas_que_lidera_ids(user)
+            qs = qs.filter(Q(pauta__igreja_id__in=igrejas) | Q(pauta__criada_por=user))
+        return qs
+
+    def create(self, request, *args, **kwargs):
+        pauta = Pauta.objects.filter(pk=request.data.get("pauta")).select_related("igreja").first()
+        if not self._pode_acessar(pauta):
+            return Response({"detail": "Sem permissão para comentar."}, status=403)
+        texto = (request.data.get("texto") or "").strip()
+        arquivos = request.FILES.getlist("anexos")
+        if not texto and not arquivos:
+            return Response({"texto": "Escreva algo ou anexe um arquivo."}, status=400)
+        if len(arquivos) > 5:
+            return Response({"anexos": "Máximo de 5 anexos por comentário."}, status=400)
+        for a in arquivos:
+            ok, erro = _validar_anexo(a)
+            if not ok:
+                return Response({"anexos": erro}, status=400)
+
+        coment = PautaComentario.objects.create(pauta=pauta, autor=request.user, texto=texto)
+        for a in arquivos:
+            PautaAnexo.objects.create(
+                pauta=pauta, comentario=coment, autor=request.user, arquivo=a,
+                tipo_mime=getattr(a, "content_type", ""), tamanho_bytes=a.size,
+                nome_original=a.name[:255],
+            )
+        # Notifica anciões + proponente (exceto o autor).
+        destinatarios = set(
+            Membro.objects.filter(
+                igreja=pauta.igreja, status=StatusVinculo.ATIVO,
+                papel__in=[PapelIgreja.ANCIAO, PapelIgreja.PASTOR, PapelIgreja.ADMIN],
+            ).values_list("usuario_id", flat=True)
+        )
+        if pauta.criada_por_id:
+            destinatarios.add(pauta.criada_por_id)
+        destinatarios.discard(request.user.id)
+        for uid in destinatarios:
+            notificar(
+                User.objects.filter(pk=uid).first(),
+                "💬 Novo comentário na pauta",
+                f"{request.user.get_full_name() or request.user.username} comentou em “{pauta.titulo}”.",
+                tipo="pauta_comentario", link=f"/pauta/{pauta.id}",
+            )
+        return Response(
+            PautaComentarioSerializer(coment, context={"request": request}).data,
+            status=status.HTTP_201_CREATED,
+        )
+
+    def partial_update(self, request, *args, **kwargs):
+        coment = self.get_object()
+        if coment.autor_id != request.user.id:
+            return Response({"detail": "Só o autor edita."}, status=403)
+        coment.texto = (request.data.get("texto") or coment.texto).strip()
+        coment.editado_em = timezone.now()
+        coment.save(update_fields=["texto", "editado_em"])
+        return Response(PautaComentarioSerializer(coment, context={"request": request}).data)
+
+    def destroy(self, request, *args, **kwargs):
+        coment = self.get_object()
+        if coment.autor_id != request.user.id and not roles.eh_admin_igreja(request.user, coment.pauta.igreja):
+            return Response({"detail": "Sem permissão."}, status=403)
+        coment.deletado_em = timezone.now()
+        coment.save(update_fields=["deletado_em"])
+        return Response(status=status.HTTP_204_NO_CONTENT)
 
 
 # --------------------------------------------------------------------------- #

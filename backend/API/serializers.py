@@ -577,6 +577,38 @@ class PautaSerializer(serializers.ModelSerializer):
         return v.opcao if v else None
 
 
+class PautaAnexoSerializer(serializers.ModelSerializer):
+    arquivo = serializers.SerializerMethodField()
+
+    class Meta:
+        from .models import PautaAnexo
+
+        model = PautaAnexo
+        fields = ["id", "arquivo", "tipo_mime", "tamanho_bytes", "nome_original", "criado_em"]
+
+    def get_arquivo(self, obj):
+        return obj.arquivo.url if obj.arquivo else None
+
+
+class PautaComentarioSerializer(serializers.ModelSerializer):
+    autor_detalhe = UsuarioMiniSerializer(source="autor", read_only=True)
+    anexos = PautaAnexoSerializer(many=True, read_only=True)
+    editado = serializers.SerializerMethodField()
+
+    class Meta:
+        from .models import PautaComentario
+
+        model = PautaComentario
+        fields = [
+            "id", "pauta", "autor", "autor_detalhe", "texto", "anexos",
+            "editado", "criado_em", "editado_em",
+        ]
+        read_only_fields = ["autor", "criado_em", "editado_em"]
+
+    def get_editado(self, obj):
+        return obj.editado_em is not None
+
+
 class VotoSerializer(serializers.ModelSerializer):
     """Respeita anonimato: oculta o autor quando a pauta é anônima."""
 

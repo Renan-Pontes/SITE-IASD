@@ -812,6 +812,56 @@ class Voto(models.Model):
 
 
 # --------------------------------------------------------------------------- #
+# Fórum de pauta (discussão + anexos, antes/durante o voto)
+# --------------------------------------------------------------------------- #
+class PautaComentario(models.Model):
+    pauta = models.ForeignKey(Pauta, on_delete=models.CASCADE, related_name="comentarios")
+    autor = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="comentarios_pauta"
+    )
+    texto = models.TextField()  # Markdown (sanitizado no front)
+    criado_em = models.DateTimeField(auto_now_add=True)
+    editado_em = models.DateTimeField(null=True, blank=True)
+    deletado_em = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        verbose_name = "Comentário de pauta"
+        verbose_name_plural = "Comentários de pauta"
+        ordering = ["criado_em"]  # fórum: mais antigos no topo
+        indexes = [models.Index(fields=["pauta", "criado_em"])]
+
+    def __str__(self):
+        return f"Comentário de {self.autor} em {self.pauta_id}"
+
+
+def _anexo_path(instance, filename):
+    return f"pauta_anexos/{instance.pauta_id}/{filename}"
+
+
+class PautaAnexo(models.Model):
+    pauta = models.ForeignKey(Pauta, on_delete=models.CASCADE, related_name="anexos")
+    comentario = models.ForeignKey(
+        PautaComentario, on_delete=models.CASCADE, null=True, blank=True, related_name="anexos"
+    )
+    autor = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="anexos_pauta"
+    )
+    arquivo = models.FileField(upload_to=_anexo_path)
+    tipo_mime = models.CharField(max_length=100, blank=True)
+    tamanho_bytes = models.PositiveIntegerField(default=0)
+    nome_original = models.CharField(max_length=255, blank=True)
+    criado_em = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        verbose_name = "Anexo de pauta"
+        verbose_name_plural = "Anexos de pauta"
+        ordering = ["criado_em"]
+
+    def __str__(self):
+        return self.nome_original or f"Anexo {self.id}"
+
+
+# --------------------------------------------------------------------------- #
 # Chat de grupo
 # --------------------------------------------------------------------------- #
 class Mensagem(models.Model):
