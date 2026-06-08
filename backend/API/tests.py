@@ -24,6 +24,7 @@ from API.models import (
     Membro,
     PapelIgreja,
     Pauta,
+    Sala,
     StatusEvento,
     StatusInscricao,
     StatusVinculo,
@@ -263,8 +264,10 @@ class PautaVotacaoTests(TestCase):
         self.assertIn(resp.status_code, (403, 404))
 
     def test_anonimato_oculta_autor(self):
+        # Pauta anônima ENCERRADA revela a contagem/justificativas, mas não o autor.
         pauta = Pauta.objects.create(
-            titulo="Secreta", igreja=self.igreja, criada_por=self.anciao, anonima=True,
+            titulo="Secreta", igreja=self.igreja, criada_por=self.anciao,
+            anonima=True, status="encerrada",
         )
         Voto.objects.create(pauta=pauta, usuario=self.anciao, opcao="sim")
         lider = APIClient()
@@ -273,6 +276,21 @@ class PautaVotacaoTests(TestCase):
         self.assertEqual(resp.status_code, 200, resp.content)
         self.assertEqual(len(resp.data), 1)
         self.assertIsNone(resp.data[0]["usuario_detalhe"])
+
+    def test_anonima_aberta_esconde_contagem(self):
+        pauta = Pauta.objects.create(
+            titulo="Secreta2", igreja=self.igreja, criada_por=self.anciao, anonima=True,
+        )
+        Voto.objects.create(pauta=pauta, usuario=self.anciao, opcao="sim")
+        lider = APIClient()
+        autentica(lider, "pastor@iasd.app")
+        # Durante a votação anônima: votos ocultos e contagem (resultado) escondida.
+        resp = lider.get(f"/api/pautas/{pauta.id}/votos/")
+        self.assertEqual(resp.data, [])
+        det = lider.get(f"/api/pautas/{pauta.id}/")
+        self.assertFalse(det.data["mostra_resultado"])
+        self.assertIsNone(det.data["resultado"])
+        self.assertEqual(det.data["total_votos"], 1)  # participação aparece
 
     def test_pauta_nao_anonima_revela_autor(self):
         pauta = Pauta.objects.create(
@@ -418,6 +436,102 @@ class CanalAncioesTests(TestCase):
         self.assertIsNone(pauta.aplicada_em)  # enquete não aplica nada
         resp = self.a.get(f"/api/pautas/{pid}/")
         self.assertEqual(resp.data["resultado"]["Sábado"], 2)
+
+
+class MetodosVotacaoTests(TestCase):
+    def setUp(self):
+        self.igreja = Igreja.objects.create(nome="IASD Metodos", cidade="SP", estado="SP")
+        self.anciaos = []
+        for i in range(3):
+            u = cria_user(f"anc{i}@iasd.app", f"Anciao {i}")
+            Membro.objects.create(usuario=u, igreja=self.igreja, papel=PapelIgreja.ANCIAO, status=StatusVinculo.ATIVO)
+            c = APIClient(); autentica(c, f"anc{i}@iasd.app")
+            self.anciaos.append(c)
+
+    def _pauta(self, **extra):
+        from API.models import Pauta
+        return Pauta.objects.create(titulo="P", igreja=self.igreja, criada_por_id=None, **extra)
+
+    def test_unanimidade_um_nao_rejeita_na_hora(self):
+        p = self._pauta(metodo_votacao="unanimidade")
+        self.anciaos[0].post(f"/api/pautas/{p.id}/votar/", {"opcao": "nao"}, format="json")
+        p.refresh_from_db()
+        self.assertEqual(p.status, "encerrada")
+        self.assertEqual(p.decisao, "rejeitado")
+
+    def test_unanimidade_todos_sim_aprova(self):
+        p = self._pauta(metodo_votacao="unanimidade")
+        for c in self.anciaos:
+            c.post(f"/api/pautas/{p.id}/votar/", {"opcao": "sim"}, format="json")
+        p.refresh_from_db()
+        self.assertEqual(p.decisao, "aprovado")
+
+    def test_lider_um_sim_aprova(self):
+        p = self._pauta(metodo_votacao="lider")
+        self.anciaos[0].post(f"/api/pautas/{p.id}/votar/", {"opcao": "sim"}, format="json")
+        p.refresh_from_db()
+        self.assertEqual(p.decisao, "aprovado")
+
+    def test_maioria_absoluta_fecha_cedo(self):
+        # 3 anciões; 2 sim já passa de 50% -> aprova sem esperar o 3º.
+        p = self._pauta(metodo_votacao="maioria_absoluta")
+        self.anciaos[0].post(f"/api/pautas/{p.id}/votar/", {"opcao": "sim"}, format="json")
+        p.refresh_from_db(); self.assertEqual(p.status, "aberta")
+        self.anciaos[1].post(f"/api/pautas/{p.id}/votar/", {"opcao": "sim"}, format="json")
+        p.refresh_from_db()
+        self.assertEqual(p.status, "encerrada")
+        self.assertEqual(p.decisao, "aprovado")
+
+    def test_voto_comeca_neutro(self):
+        p = self._pauta(metodo_votacao="maioria_simples")
+        resp = self.anciaos[0].get(f"/api/pautas/{p.id}/")
+        self.assertIsNone(resp.data["meu_voto"])  # sem voto pré-marcado
+
+
+class ProponenteTests(TestCase):
+    def setUp(self):
+        self.igreja = Igreja.objects.create(nome="IASD Prop", cidade="SP", estado="SP")
+        self.membro = cria_user("membro@iasd.app", "Maria Membro")
+        Membro.objects.create(usuario=self.membro, igreja=self.igreja, papel=PapelIgreja.MEMBRO, status=StatusVinculo.ATIVO)
+        self.anciao = cria_user("anciao@iasd.app", "Jose Anciao")
+        Membro.objects.create(usuario=self.anciao, igreja=self.igreja, papel=PapelIgreja.ANCIAO, status=StatusVinculo.ATIVO)
+
+    def test_membro_propoe_e_acompanha(self):
+        c = APIClient(); autentica(c, "membro@iasd.app")
+        resp = c.post("/api/pautas/", {
+            "titulo": "Festa", "igreja": self.igreja.id, "tipo": "agendar_evento",
+            "payload": {"titulo": "Festa", "inicio": "2026-09-01T19:00:00Z", "fim": "2026-09-01T21:00:00Z"},
+        }, format="json")
+        self.assertEqual(resp.status_code, 201, resp.content)
+        pid = resp.data["id"]
+        # Proponente lista as suas e vê o detalhe.
+        minhas = c.get("/api/pautas/minhas/")
+        self.assertTrue(any(p["id"] == pid for p in (minhas.data.get("results", minhas.data))))
+        det = c.get(f"/api/pautas/{pid}/")
+        self.assertEqual(det.status_code, 200)
+
+
+class EnforcementGovernancaTests(TestCase):
+    def setUp(self):
+        self.igreja = Igreja.objects.create(nome="IASD Gov", cidade="SP", estado="SP")
+        self.membro = cria_user("membro@iasd.app", "Maria Membro")
+        Membro.objects.create(usuario=self.membro, igreja=self.igreja, papel=PapelIgreja.MEMBRO, status=StatusVinculo.ATIVO)
+
+    def test_criar_grupo_vira_pauta(self):
+        c = APIClient(); autentica(c, "membro@iasd.app")
+        resp = c.post("/api/grupos/", {"nome": "Coral", "tipo": "musica", "igreja": self.igreja.id}, format="json")
+        self.assertEqual(resp.status_code, 202, resp.content)
+        self.assertEqual(resp.data["status"], "pauta_aberta")
+        # Não criou o grupo direto.
+        self.assertFalse(Grupo.objects.filter(nome="Coral").exists())
+        from API.models import Pauta
+        self.assertTrue(Pauta.objects.filter(id=resp.data["pauta_id"], tipo="criar_grupo").exists())
+
+    def test_criar_sala_vira_pauta(self):
+        c = APIClient(); autentica(c, "membro@iasd.app")
+        resp = c.post("/api/salas/", {"nome": "Anexo", "igreja": self.igreja.id}, format="json")
+        self.assertEqual(resp.status_code, 202)
+        self.assertEqual(Sala.objects.filter(nome="Anexo").count(), 0)
 
 
 class GrupoChatTests(TestCase):

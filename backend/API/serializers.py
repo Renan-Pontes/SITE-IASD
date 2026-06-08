@@ -461,6 +461,9 @@ class PautaSerializer(serializers.ModelSerializer):
     resultado = serializers.SerializerMethodField()
     meu_voto = serializers.SerializerMethodField()
     total_votos = serializers.SerializerMethodField()
+    total_eleitores = serializers.SerializerMethodField()
+    pendentes = serializers.SerializerMethodField()
+    mostra_resultado = serializers.SerializerMethodField()
     expirada = serializers.BooleanField(read_only=True)
     quorum_atingido = serializers.BooleanField(read_only=True)
 
@@ -475,6 +478,8 @@ class PautaSerializer(serializers.ModelSerializer):
             "criada_por",
             "criada_por_detalhe",
             "tipo",
+            "categoria",
+            "metodo_votacao",
             "payload",
             "opcoes",
             "anonima",
@@ -486,8 +491,11 @@ class PautaSerializer(serializers.ModelSerializer):
             "decisao",
             "aplicada_em",
             "resultado",
+            "mostra_resultado",
             "meu_voto",
             "total_votos",
+            "total_eleitores",
+            "pendentes",
             "expirada",
             "criado_em",
         ]
@@ -495,7 +503,13 @@ class PautaSerializer(serializers.ModelSerializer):
             "criada_por", "status", "decisao", "aplicada_em", "criado_em",
         ]
 
+    def get_mostra_resultado(self, obj):
+        # Em pauta anônima, a contagem por opção só aparece após o encerramento.
+        return not (obj.anonima and obj.status == "aberta")
+
     def get_resultado(self, obj):
+        if not self.get_mostra_resultado(obj):
+            return None
         from collections import Counter
 
         contagem = Counter(v.opcao for v in obj.votos.all())
@@ -509,6 +523,23 @@ class PautaSerializer(serializers.ModelSerializer):
 
     def get_total_votos(self, obj):
         return obj.votos.count()
+
+    def get_total_eleitores(self, obj):
+        return obj.total_anciaos()
+
+    def get_pendentes(self, obj):
+        """Anciões que ainda não votaram (para cobrar) — não vaza o voto deles."""
+        from .models import Membro, StatusVinculo, PapelIgreja
+
+        votaram = set(obj.votos.values_list("usuario_id", flat=True))
+        qs = Membro.objects.filter(
+            igreja=obj.igreja, status=StatusVinculo.ATIVO,
+            papel__in=[PapelIgreja.ANCIAO, PapelIgreja.PASTOR, PapelIgreja.ADMIN],
+        ).exclude(usuario_id__in=votaram).select_related("usuario")
+        return [
+            {"id": m.usuario_id, "nome": m.usuario.get_full_name() or m.usuario.username}
+            for m in qs
+        ]
 
     def get_meu_voto(self, obj):
         request = self.context.get("request")

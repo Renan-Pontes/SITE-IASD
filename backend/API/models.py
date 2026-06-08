@@ -89,6 +89,25 @@ class StatusInscricao(models.TextChoices):
 class StatusPauta(models.TextChoices):
     ABERTA = "aberta", "Aberta"
     ENCERRADA = "encerrada", "Encerrada"
+    EXPIRADA_SEM_QUORUM = "expirada_sem_quorum", "Expirada sem quórum"
+
+
+class MetodoVotacao(models.TextChoices):
+    UNANIMIDADE = "unanimidade", "Unanimidade (todos precisam aprovar)"
+    MAIORIA_SIMPLES = "maioria_simples", "Maioria simples (mais sim que não)"
+    MAIORIA_ABSOLUTA = "maioria_absoluta", "Maioria absoluta (>50% dos anciões)"
+    DOIS_TERCOS = "dois_tercos", "Dois terços dos votos válidos"
+    QUORUM_APROVACAO = "quorum_aprovacao", "Nº mínimo de votos sim"
+    LIDER = "lider", "Aprovação simples (1 voto sim basta)"
+
+
+class CategoriaPauta(models.TextChoices):
+    INFRAESTRUTURA = "infraestrutura", "Infraestrutura"
+    PROGRAMACAO = "programacao", "Programação"
+    FINANCEIRO = "financeiro", "Financeiro"
+    GRUPOS = "grupos", "Grupos"
+    PESSOAL = "pessoal", "Pessoal"
+    OUTROS = "outros", "Outros"
 
 
 class TipoPauta(models.TextChoices):
@@ -497,6 +516,12 @@ class Pauta(models.Model):
     tipo = models.CharField(
         max_length=20, choices=TipoPauta.choices, default=TipoPauta.OUTRA
     )
+    categoria = models.CharField(
+        max_length=20, choices=CategoriaPauta.choices, default=CategoriaPauta.OUTROS
+    )
+    metodo_votacao = models.CharField(
+        max_length=20, choices=MetodoVotacao.choices, default=MetodoVotacao.MAIORIA_SIMPLES
+    )
     # Proposta concreta (ex.: {"antes": {...}, "depois": {...}} ou dados de criação).
     payload = models.JSONField(null=True, blank=True)
     # Opções customizadas para enquete_livre (lista de strings). Vazio = sim/não/abstenção.
@@ -512,7 +537,7 @@ class Pauta(models.Model):
         help_text="Nº mínimo de votos para encerrar a pauta automaticamente.",
     )
     status = models.CharField(
-        max_length=10, choices=StatusPauta.choices, default=StatusPauta.ABERTA
+        max_length=20, choices=StatusPauta.choices, default=StatusPauta.ABERTA
     )
     # aprovado / rejeitado / empate (ou a opção vencedora numa enquete).
     decisao = models.CharField(max_length=50, blank=True)
@@ -533,38 +558,152 @@ class Pauta(models.Model):
     def quorum_atingido(self):
         return bool(self.quorum_minimo and self.votos.count() >= self.quorum_minimo)
 
-    def _computar_decisao(self):
-        """Decide o resultado: para enquete, a opção vencedora; senão sim/não."""
+    def total_anciaos(self):
+        """Nº de anciões/pastores/admins ativos da igreja (eleitorado da pauta)."""
+        return Membro.objects.filter(
+            igreja=self.igreja,
+            status=StatusVinculo.ATIVO,
+            papel__in=[PapelIgreja.ANCIAO, PapelIgreja.PASTOR, PapelIgreja.ADMIN],
+        ).count()
+
+    def _opcao_vencedora(self):
         from collections import Counter
 
         contagem = Counter(v.opcao for v in self.votos.all())
-        if self.tipo == TipoPauta.ENQUETE_LIVRE and self.opcoes:
-            vencedora = ""
-            melhor = -1
-            for op in self.opcoes:
-                n = contagem.get(op, 0)
-                if n > melhor:
-                    melhor, vencedora = n, op
-            return vencedora
-        sim, nao = contagem.get("sim", 0), contagem.get("nao", 0)
-        if sim > nao:
-            return "aprovado"
-        if nao > sim:
+        vencedora, melhor = "", -1
+        for op in self.opcoes or []:
+            n = contagem.get(op, 0)
+            if n > melhor:
+                melhor, vencedora = n, op
+        return vencedora
+
+    def _fechamento_cedo(self, sim, nao, total_el):
+        """Decisão já travada antes de todos votarem? Retorna decisão ou None."""
+        m = self.metodo_votacao
+        if m == MetodoVotacao.UNANIMIDADE and nao > 0:
             return "rejeitado"
-        return "empate"
+        if m == MetodoVotacao.LIDER and sim > 0:
+            return "aprovado"
+        if m == MetodoVotacao.QUORUM_APROVACAO and sim >= (self.quorum_minimo or 1):
+            return "aprovado"
+        if m == MetodoVotacao.MAIORIA_ABSOLUTA and sim * 2 > total_el:
+            return "aprovado"
+        return None
+
+    def _decisao_final(self, sim, nao, total_el):
+        """Decisão ao fim (prazo/todos votaram), conforme o método."""
+        validos = sim + nao
+        m = self.metodo_votacao
+        if m == MetodoVotacao.UNANIMIDADE:
+            return "aprovado" if (sim > 0 and nao == 0) else "rejeitado"
+        if m == MetodoVotacao.LIDER:
+            return "aprovado" if sim > 0 else "rejeitado"
+        if m == MetodoVotacao.QUORUM_APROVACAO:
+            return "aprovado" if sim >= (self.quorum_minimo or 1) else "rejeitado"
+        if m == MetodoVotacao.MAIORIA_ABSOLUTA:
+            return "aprovado" if sim * 2 > total_el else "rejeitado"
+        if m == MetodoVotacao.DOIS_TERCOS:
+            return "aprovado" if (validos > 0 and sim * 3 >= validos * 2) else "rejeitado"
+        # maioria simples
+        if sim == nao:
+            return "empate"
+        return "aprovado" if sim > nao else "rejeitado"
 
     def fechar_se_necessario(self):
-        """Encerra a pauta (quórum/prazo), computa a decisão e aplica se aprovada."""
+        """
+        Avalia o fechamento conforme o método de votação. Encerra cedo quando a
+        decisão já está travada (1 não em unanimidade, etc.); senão aguarda todos
+        votarem ou o prazo. Computa a decisão e aplica se aprovada.
+        """
         if self.status != StatusPauta.ABERTA:
             return False
-        if self.quorum_atingido or self.expirada:
-            self.decisao = self._computar_decisao()
-            self.status = StatusPauta.ENCERRADA
-            self.save(update_fields=["status", "decisao"])
-            if self.decisao == "aprovado":
-                self.aplicar()
+        from collections import Counter
+
+        contagem = Counter(v.opcao for v in self.votos.all())
+        sim, nao = contagem.get("sim", 0), contagem.get("nao", 0)
+        votaram = self.votos.count()
+        total_el = max(self.total_anciaos(), 1)
+        prazo_expirou = self.expirada
+        todos_votaram = votaram >= total_el
+        quorum_ok = (not self.quorum_minimo) or votaram >= self.quorum_minimo
+
+        # Enquete: fecha por prazo/todos; decisão = opção vencedora.
+        if self.tipo == TipoPauta.ENQUETE_LIVRE and self.opcoes:
+            if prazo_expirou or todos_votaram:
+                self._encerrar(self._opcao_vencedora())
+                return True
+            return False
+
+        # Fechamento antecipado (decisão travada).
+        cedo = self._fechamento_cedo(sim, nao, total_el)
+        if cedo:
+            self._encerrar(cedo)
+            return True
+
+        # Fim por prazo ou todos votaram.
+        if prazo_expirou or todos_votaram:
+            if not quorum_ok:
+                self.status = StatusPauta.EXPIRADA_SEM_QUORUM
+                self.save(update_fields=["status"])
+                self._notificar_encerramento()
+                return True
+            self._encerrar(self._decisao_final(sim, nao, total_el))
             return True
         return False
+
+    def encerrar_agora(self):
+        """Encerramento manual (liderança): apura com os votos atuais."""
+        if self.status != StatusPauta.ABERTA:
+            return
+        from collections import Counter
+
+        c = Counter(v.opcao for v in self.votos.all())
+        if self.tipo == TipoPauta.ENQUETE_LIVRE and self.opcoes:
+            self._encerrar(self._opcao_vencedora())
+        else:
+            self._encerrar(
+                self._decisao_final(c.get("sim", 0), c.get("nao", 0), max(self.total_anciaos(), 1))
+            )
+
+    def _encerrar(self, decisao):
+        self.decisao = decisao
+        self.status = StatusPauta.ENCERRADA
+        self.save(update_fields=["status", "decisao"])
+        if decisao == "aprovado":
+            self.aplicar()
+        self._notificar_encerramento()
+
+    def _notificar_encerramento(self):
+        """Avisa o proponente (e anciões, se aplicada) sobre o desfecho."""
+        from .utils import notificar
+
+        if self.status == StatusPauta.EXPIRADA_SEM_QUORUM:
+            notificar(
+                self.criada_por, "Pauta expirou sem quórum",
+                f"“{self.titulo}” não atingiu o quórum. Você pode reenviar.",
+                tipo="pauta_expirada", link=f"/pauta/{self.id}",
+            )
+            return
+        resultado = (
+            "aprovada" if self.decisao == "aprovado"
+            else "rejeitada" if self.decisao == "rejeitado"
+            else "encerrada"
+        )
+        notificar(
+            self.criada_por, f"Sua pauta foi {resultado}",
+            f"“{self.titulo}” — {resultado}.",
+            tipo="pauta_encerrada", link=f"/pauta/{self.id}",
+        )
+        if self.aplicada_em:
+            for lider in Membro.objects.filter(
+                igreja=self.igreja, status=StatusVinculo.ATIVO,
+                papel__in=[PapelIgreja.ANCIAO, PapelIgreja.PASTOR, PapelIgreja.ADMIN],
+            ).select_related("usuario"):
+                notificar(
+                    lider.usuario, "Pauta aplicada",
+                    f"“{self.titulo}” foi aprovada e aplicada.",
+                    tipo="pauta_aplicada", link=f"/pauta/{self.id}",
+                )
 
     def aplicar(self):
         """Aplica o payload de uma pauta aprovada (idempotente)."""

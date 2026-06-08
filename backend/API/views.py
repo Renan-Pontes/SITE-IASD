@@ -122,6 +122,44 @@ def search(request):
     )
 
 
+def _abrir_pauta_criacao(user, igreja, tipo, titulo, categoria, payload, metodo="maioria_simples"):
+    """
+    Abre uma pauta de proposta no Canal dos Anciões (em vez de criar direto).
+    Notifica proponente + anciões. Usado pelo enforcement de governança.
+    """
+    pauta = Pauta.objects.create(
+        igreja=igreja, criada_por=user, tipo=tipo, titulo=titulo,
+        categoria=categoria, payload=payload, metodo_votacao=metodo,
+    )
+    log_acao(user, "criar_pauta", "Pauta", pauta.id, {"tipo": tipo, "via": "enforcement"})
+    notificar(
+        user, "Proposta enviada para votação",
+        f"“{titulo}” foi enviada ao Canal dos Anciões. Acompanhe o andamento.",
+        tipo="pauta_proposta", link=f"/pauta/{pauta.id}",
+    )
+    for lider in Membro.objects.filter(
+        igreja=igreja, status=StatusVinculo.ATIVO,
+        papel__in=[PapelIgreja.ANCIAO, PapelIgreja.PASTOR, PapelIgreja.ADMIN],
+    ).exclude(usuario=user).select_related("usuario"):
+        notificar(
+            lider.usuario, "📜 Nova pauta para votar",
+            f"“{titulo}” aguarda seu voto no Canal dos Anciões.",
+            tipo="pauta_nova", link=f"/igreja/{igreja.id}/canal",
+        )
+    return pauta
+
+
+def _resposta_pauta_aberta(pauta):
+    return Response(
+        {
+            "status": "pauta_aberta",
+            "pauta_id": pauta.id,
+            "mensagem": "Sua proposta foi enviada ao Canal dos Anciões para votação.",
+        },
+        status=status.HTTP_202_ACCEPTED,
+    )
+
+
 def _salvar_foto(instance, request):
     """
     Valida (Pillow) e salva a imagem enviada no campo `foto`.
@@ -514,21 +552,37 @@ class GrupoViewSet(viewsets.ModelViewSet):
             return [AllowAny()]
         return [IsAuthenticated()]
 
-    def perform_create(self, serializer):
-        igreja = serializer.validated_data["igreja"]
-        if not roles.eh_lideranca_igreja(self.request.user, igreja):
-            from rest_framework.exceptions import PermissionDenied
+    def create(self, request, *args, **kwargs):
+        """Criar grupo afeta a igreja toda → vira PAUTA no Canal (governança).
 
-            raise PermissionDenied("Apenas a liderança da igreja pode criar grupos.")
+        Super admin pode criar direto (bootstrapping) passando ?direto=1.
+        """
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        igreja = serializer.validated_data["igreja"]
+        if not (roles.eh_membro(request.user, igreja) or roles.eh_lideranca_igreja(request.user, igreja)):
+            return Response({"detail": "Você precisa ser membro da igreja."}, status=403)
+
+        bypass = roles.is_super(request.user) and request.query_params.get("direto") == "1"
+        if not bypass:
+            dados = serializer.validated_data
+            pauta = _abrir_pauta_criacao(
+                request.user, igreja, "criar_grupo",
+                f"Criar grupo: {dados.get('nome')}", "grupos",
+                {
+                    "nome": dados.get("nome", ""),
+                    "tipo": dados.get("tipo", "ministerio"),
+                    "descricao": dados.get("descricao", ""),
+                },
+            )
+            return _resposta_pauta_aberta(pauta)
+
         grupo = serializer.save()
-        # Quem cria já entra como diretor ativo.
         GrupoMembro.objects.create(
-            usuario=self.request.user,
-            grupo=grupo,
-            cargo=CargoGrupo.DIRETOR,
-            status=StatusVinculo.ATIVO,
+            usuario=request.user, grupo=grupo, cargo=CargoGrupo.DIRETOR, status=StatusVinculo.ATIVO,
         )
-        log_acao(self.request.user, "criar_grupo", "Grupo", grupo.id)
+        log_acao(request.user, "criar_grupo", "Grupo", grupo.id, {"direto": True})
+        return Response(self.get_serializer(grupo).data, status=status.HTTP_201_CREATED)
 
     def update(self, request, *args, **kwargs):
         grupo = self.get_object()
@@ -718,10 +772,31 @@ class SalaViewSet(viewsets.ModelViewSet):
 
             raise PermissionDenied("Apenas a liderança da igreja gerencia salas.")
 
-    def perform_create(self, serializer):
-        self._checar(serializer.validated_data["igreja"])
+    def create(self, request, *args, **kwargs):
+        """Criar sala afeta a igreja toda → vira PAUTA (governança)."""
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        igreja = serializer.validated_data["igreja"]
+        if not (roles.eh_membro(request.user, igreja) or roles.eh_lideranca_igreja(request.user, igreja)):
+            return Response({"detail": "Você precisa ser membro da igreja."}, status=403)
+
+        bypass = roles.is_super(request.user) and request.query_params.get("direto") == "1"
+        if not bypass:
+            d = serializer.validated_data
+            pauta = _abrir_pauta_criacao(
+                request.user, igreja, "criar_sala",
+                f"Criar sala: {d.get('nome')}", "infraestrutura",
+                {
+                    "nome": d.get("nome", ""),
+                    "capacidade": d.get("capacidade"),
+                    "equipamentos": d.get("equipamentos", ""),
+                },
+            )
+            return _resposta_pauta_aberta(pauta)
+
         sala = serializer.save()
-        log_acao(self.request.user, "criar_sala", "Sala", sala.id)
+        log_acao(request.user, "criar_sala", "Sala", sala.id, {"direto": True})
+        return Response(self.get_serializer(sala).data, status=status.HTTP_201_CREATED)
 
     def perform_update(self, serializer):
         self._checar(serializer.instance.igreja)
@@ -982,23 +1057,39 @@ class PautaViewSet(viewsets.ModelViewSet):
 
     def get_queryset(self):
         user = self.request.user
+        base = Pauta.objects.select_related("igreja", "criada_por").prefetch_related("votos")
+        if not user.is_authenticated:
+            return base.none()
         if roles.is_super(user):
-            return Pauta.objects.select_related("igreja", "criada_por").prefetch_related("votos")
-        igrejas = roles.igrejas_que_lidera_ids(user)
-        return (
-            Pauta.objects.filter(igreja_id__in=igrejas)
-            .select_related("igreja", "criada_por")
-            .prefetch_related("votos")
-        )
+            qs = base
+        else:
+            # Liderança vê as pautas das igrejas que lidera; o proponente vê as suas
+            # (mesmo não sendo ancião) para acompanhar o andamento.
+            igrejas = roles.igrejas_que_lidera_ids(user)
+            qs = base.filter(Q(igreja_id__in=igrejas) | Q(criada_por=user)).distinct()
+        if self.request.query_params.get("proponente_me") == "true":
+            qs = qs.filter(criada_por=user)
+        return qs
 
     def perform_create(self, serializer):
         igreja = serializer.validated_data["igreja"]
-        if not roles.eh_lideranca_igreja(self.request.user, igreja):
+        # Qualquer membro ativo pode PROPOR (vira pauta); só anciões votam.
+        if not (
+            roles.eh_membro(self.request.user, igreja)
+            or roles.eh_lideranca_igreja(self.request.user, igreja)
+        ):
             from rest_framework.exceptions import PermissionDenied
 
-            raise PermissionDenied("Apenas anciões/liderança criam pautas.")
+            raise PermissionDenied("Você precisa ser membro da igreja para propor pautas.")
         pauta = serializer.save(criada_por=self.request.user)
         log_acao(self.request.user, "criar_pauta", "Pauta", pauta.id, {"tipo": pauta.tipo})
+        # Confirma ao proponente.
+        notificar(
+            self.request.user,
+            "Proposta enviada para votação",
+            f"“{pauta.titulo}” foi enviada ao Canal dos Anciões. Acompanhe o andamento.",
+            tipo="pauta_proposta", link=f"/pauta/{pauta.id}",
+        )
         # Notifica os anciões/liderança da igreja sobre a nova pauta.
         for lider in Membro.objects.filter(
             igreja=igreja,
@@ -1007,7 +1098,7 @@ class PautaViewSet(viewsets.ModelViewSet):
         ).exclude(usuario=self.request.user).select_related("usuario"):
             notificar(
                 lider.usuario,
-                "Nova pauta para votar",
+                "📜 Nova pauta para votar",
                 f"“{pauta.titulo}” aguarda seu voto no Canal dos Anciões.",
                 tipo="pauta_nova",
                 link=f"/igreja/{igreja.id}/canal",
@@ -1051,18 +1142,56 @@ class PautaViewSet(viewsets.ModelViewSet):
         pauta = self.get_object()
         if not roles.eh_lideranca_igreja(request.user, pauta.igreja):
             return Response({"detail": "Sem permissão."}, status=403)
-        pauta.status = StatusPauta.ENCERRADA
-        pauta.save(update_fields=["status"])
+        pauta.encerrar_agora()
         log_acao(request.user, "encerrar_pauta", "Pauta", pauta.id)
         return Response(PautaSerializer(pauta, context={"request": request}).data)
 
     @action(detail=True, methods=["get"])
     def votos(self, request, pk=None):
         pauta = self.get_object()
-        if not roles.eh_lideranca_igreja(request.user, pauta.igreja):
+        # Liderança ou o proponente (transparência da governança).
+        if not (
+            roles.eh_lideranca_igreja(request.user, pauta.igreja)
+            or pauta.criada_por_id == request.user.id
+        ):
             return Response({"detail": "Sem permissão."}, status=403)
+        # Em pauta anônima aberta, não revela os votos (nem contagem). Só após encerrar.
+        if pauta.anonima and pauta.status == StatusPauta.ABERTA:
+            return Response([])
         qs = pauta.votos.select_related("usuario", "usuario__profile")
         return Response(VotoSerializer(qs, many=True, context={"request": request}).data)
+
+    @action(detail=True, methods=["post"])
+    def aplicar(self, request, pk=None):
+        """Aplica manualmente uma pauta aprovada (caso a automática tenha falhado)."""
+        pauta = self.get_object()
+        if not roles.eh_admin_igreja(request.user, pauta.igreja):
+            return Response({"detail": "Apenas o administrador da igreja."}, status=403)
+        if pauta.decisao != "aprovado":
+            return Response({"detail": "A pauta não foi aprovada."}, status=400)
+        pauta.aplicar()
+        log_acao(request.user, "aplicar_pauta", "Pauta", pauta.id)
+        return Response(PautaSerializer(pauta, context={"request": request}).data)
+
+    @action(detail=True, methods=["post"])
+    def cancelar(self, request, pk=None):
+        """Cancela a pauta — só o criador e somente antes de qualquer voto."""
+        pauta = self.get_object()
+        if pauta.criada_por_id != request.user.id:
+            return Response({"detail": "Apenas quem criou pode cancelar."}, status=403)
+        if pauta.votos.exists():
+            return Response({"detail": "Já há votos; não é possível cancelar."}, status=400)
+        log_acao(request.user, "cancelar_pauta", "Pauta", pauta.id)
+        pauta.delete()
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+    @action(detail=False, methods=["get"])
+    def minhas(self, request):
+        """Pautas que o usuário propôs (acompanhamento do proponente)."""
+        qs = self.get_queryset().filter(criada_por=request.user).order_by("-criado_em")
+        page = self.paginate_queryset(qs)
+        ser = PautaSerializer(page if page is not None else qs, many=True, context={"request": request})
+        return self.get_paginated_response(ser.data) if page is not None else Response(ser.data)
 
 
 # --------------------------------------------------------------------------- #

@@ -22,6 +22,7 @@ export default function PautaDetalhe() {
   const [comentario, setComentario] = useState("");
   const [salvando, setSalvando] = useState(false);
   const [confirmarEncerrar, setConfirmarEncerrar] = useState(false);
+  const [alterando, setAlterando] = useState(false);
 
   const recarregar = () => api.get<Pauta>(`/api/pautas/${id}/`).then(setPauta);
   const carregarVotos = () =>
@@ -58,6 +59,7 @@ export default function PautaDetalhe() {
       await api.post(`/api/pautas/${id}/votar/`, { opcao, comentario });
       toast.sucesso("Voto registrado!");
       setComentario("");
+      setAlterando(false);
       await recarregar();
       await carregarVotos();
     } catch {
@@ -128,39 +130,58 @@ export default function PautaDetalhe() {
       {/* Timeline */}
       <Timeline pauta={pauta} />
 
-      {/* Votação */}
-      {!encerrada && (
+      {/* Votação — voto começa SEM resposta (neutro); nada pré-selecionado. */}
+      {!encerrada && sou && (
         <Card className="p-4">
-          <h2 className="mb-3 text-center font-bold text-slate-700 dark:text-slate-200">
-            {pauta.meu_voto ? "Você pode alterar seu voto" : ehEnquete ? "Escolha uma opção" : "Como você vota?"}
-          </h2>
-          <div className={`grid gap-2 ${opcoes.length > 3 ? "grid-cols-2" : "grid-cols-3"}`}>
-            {opcoes.map(({ k, label, Icone }) => (
-              <button
-                key={k}
-                onClick={() => votar(k)}
-                disabled={salvando}
-                className={`flex flex-col items-center gap-1 rounded-xl border-2 py-4 font-bold transition ${
-                  pauta.meu_voto === k
-                    ? k === "nao"
-                      ? "border-red-500 bg-red-500 text-white"
-                      : k === "abstencao"
-                        ? "border-slate-400 bg-slate-400 text-white"
-                        : "border-marca-600 bg-marca-600 text-white"
-                    : "border-slate-200 text-slate-600 hover:bg-slate-50 dark:border-slate-700"
-                }`}
-              >
-                <Icone size={26} /> <span className="text-center text-sm">{label}</span>
-              </button>
-            ))}
-          </div>
-          {pauta.permitir_justificativa && (
-            <input
-              className="input mt-3"
-              placeholder="Justificar minha decisão (opcional)"
-              value={comentario}
-              onChange={(e) => setComentario(e.target.value)}
-            />
+          {pauta.meu_voto && !alterando ? (
+            <div className="text-center">
+              <p className="text-sm text-slate-500">Seu voto registrado:</p>
+              <p className="my-2 text-xl font-extrabold text-marca-700 dark:text-marca-300">
+                {pauta.meu_voto === "sim" ? "Sim" : pauta.meu_voto === "nao" ? "Não" : pauta.meu_voto === "abstencao" ? "Abstenção" : pauta.meu_voto}
+              </p>
+              <Botao variante="secondary" onClick={() => setAlterando(true)}>
+                Alterar meu voto
+              </Botao>
+            </div>
+          ) : (
+            <>
+              {!pauta.meu_voto && (
+                <div className="mb-3 rounded-xl bg-amber-50 p-3 text-center text-sm font-semibold text-amber-900 dark:bg-amber-900/20 dark:text-amber-200">
+                  ⚠️ Você ainda não votou nesta pauta.
+                </div>
+              )}
+              <h2 className="mb-3 text-center font-bold text-slate-700 dark:text-slate-200">
+                {ehEnquete ? "Escolha uma opção" : "Como você vota?"}
+              </h2>
+              <div className={`grid gap-2 ${opcoes.length > 3 ? "grid-cols-2" : "grid-cols-3"}`}>
+                {opcoes.map(({ k, label, Icone }) => (
+                  <button
+                    key={k}
+                    onClick={() => votar(k)}
+                    disabled={salvando}
+                    className={`flex flex-col items-center gap-1 rounded-xl border-2 py-4 font-bold transition ${
+                      pauta.meu_voto === k
+                        ? k === "nao"
+                          ? "border-red-500 bg-red-500 text-white"
+                          : k === "abstencao"
+                            ? "border-slate-400 bg-slate-400 text-white"
+                            : "border-marca-600 bg-marca-600 text-white"
+                        : "border-slate-200 text-slate-600 hover:bg-slate-50 dark:border-slate-700"
+                    }`}
+                  >
+                    <Icone size={26} /> <span className="text-center text-sm">{label}</span>
+                  </button>
+                ))}
+              </div>
+              {pauta.permitir_justificativa && (
+                <input
+                  className="input mt-3"
+                  placeholder="Justificar minha decisão (opcional)"
+                  value={comentario}
+                  onChange={(e) => setComentario(e.target.value)}
+                />
+              )}
+            </>
           )}
         </Card>
       )}
