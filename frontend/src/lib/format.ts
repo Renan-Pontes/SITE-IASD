@@ -107,8 +107,18 @@ const RSVP: Record<string, string> = {
   cancelado: "Não vou",
 };
 
+const TIPO_PAUTA: Record<string, string> = {
+  alteracao_igreja: "Alterar dados da igreja",
+  criar_grupo: "Criar grupo",
+  criar_sala: "Criar sala/local",
+  agendar_evento: "Agendar evento",
+  enquete_livre: "Enquete",
+  outra: "Deliberação",
+};
+
 export const rotulo = {
   papel: (v: string) => PAPEL[v] ?? v,
+  tipoPauta: (v: string) => TIPO_PAUTA[v] ?? v,
   cargo: (v: string) => CARGO[v] ?? v,
   statusVinculo: (v: string) => STATUS_VINCULO[v] ?? v,
   statusEvento: (v: string) => STATUS_EVENTO[v] ?? v,

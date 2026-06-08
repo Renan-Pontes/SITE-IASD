@@ -184,17 +184,31 @@ export interface Pauta {
   igreja_nome: string;
   criada_por: number | null;
   criada_por_detalhe: UsuarioMini | null;
+  tipo: TipoPauta;
+  payload: any | null;
+  opcoes: string[] | null;
   anonima: boolean;
+  permitir_justificativa: boolean;
   prazo_votacao: string | null;
   quorum_minimo: number | null;
   quorum_atingido: boolean;
   status: "aberta" | "encerrada";
-  resultado: { sim: number; nao: number; abstencao: number };
-  meu_voto: OpcaoVoto | null;
+  decisao: string;
+  aplicada_em: string | null;
+  resultado: Record<string, number>;
+  meu_voto: string | null;
   total_votos: number;
   expirada: boolean;
   criado_em: string;
 }
+
+export type TipoPauta =
+  | "alteracao_igreja"
+  | "criar_grupo"
+  | "criar_sala"
+  | "agendar_evento"
+  | "enquete_livre"
+  | "outra";
 
 export interface Voto {
   id: number;
@@ -229,6 +243,7 @@ export interface Dashboard {
   eventos_minha_igreja: Evento[];
   eventos_proximos: Evento[];
   pendencias: { eventos: number; membros: number; pautas_abertas: number };
+  pautas_aguardando: Pauta[];
   sou_lideranca: boolean;
 }
 

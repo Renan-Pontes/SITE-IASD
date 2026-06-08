@@ -8,6 +8,7 @@ import {
   MapPin,
   Plus,
   ChevronRight,
+  Gavel,
 } from "lucide-react";
 import { api } from "../api/client";
 import { useAuth } from "../auth/AuthContext";
@@ -94,6 +95,31 @@ export default function Dashboard() {
             <CheckSquare size={20} /> Aprovações
           </Link>
         </div>
+      )}
+
+      {/* Pautas aguardando o voto do ancião */}
+      {data && data.pautas_aguardando.length > 0 && (
+        <Card className="border-2 border-marca-300 bg-marca-50 p-4 dark:bg-marca-900/20">
+          <h2 className="mb-2 flex items-center gap-2 font-bold text-marca-800 dark:text-marca-200">
+            <Gavel size={20} /> Pautas aguardando seu voto
+          </h2>
+          <div className="space-y-2">
+            {data.pautas_aguardando.map((p) => (
+              <Link
+                key={p.id}
+                to={`/pauta/${p.id}`}
+                className="flex items-center gap-2 rounded-lg bg-white p-2.5 dark:bg-slate-800"
+              >
+                <Vote size={16} className="shrink-0 text-marca-600" />
+                <div className="min-w-0 flex-1">
+                  <p className="truncate text-sm font-semibold text-slate-800 dark:text-slate-100">{p.titulo}</p>
+                  <p className="truncate text-xs text-slate-400">{p.igreja_nome}</p>
+                </div>
+                <ChevronRight size={16} className="shrink-0 text-slate-300" />
+              </Link>
+            ))}
+          </div>
+        </Card>
       )}
 
       {/* Próximos eventos da minha igreja */}

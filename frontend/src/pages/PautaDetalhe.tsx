@@ -1,13 +1,16 @@
 import { useEffect, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
-import { ArrowLeft, ThumbsUp, ThumbsDown, MinusCircle, Lock, Check } from "lucide-react";
+import {
+  ArrowLeft, ThumbsUp, ThumbsDown, MinusCircle, Lock, Check, CheckCircle2,
+  XCircle, CircleDot, Gavel,
+} from "lucide-react";
 import { api } from "../api/client";
 import { useAuth } from "../auth/AuthContext";
 import { useToast } from "../ui/Toast";
 import type { Pauta, Voto } from "../lib/types";
 import { Botao, Card, Carregando, Badge, Avatar } from "../ui/components";
 import { Confirmacao } from "../ui/Modal";
-import { formatData } from "../lib/format";
+import { formatData, formatHora, rotulo } from "../lib/format";
 
 export default function PautaDetalhe() {
   const { id } = useParams();
@@ -33,10 +36,23 @@ export default function PautaDetalhe() {
 
   const encerrada = pauta.status === "encerrada" || pauta.expirada;
   const sou = lideroIgreja(pauta.igreja);
-  const total = pauta.resultado.sim + pauta.resultado.nao + pauta.resultado.abstencao;
-  const pct = (n: number) => (total ? Math.round((n / total) * 100) : 0);
+  const ehEnquete = pauta.tipo === "enquete_livre" && !!pauta.opcoes?.length;
 
-  const votar = async (opcao: "sim" | "nao" | "abstencao") => {
+  // Opções de voto: enquete usa as customizadas; senão sim/não/abstenção.
+  const opcoes: { k: string; label: string; Icone: any; cor: string }[] = ehEnquete
+    ? pauta.opcoes!.map((o) => ({ k: o, label: o, Icone: CircleDot, cor: "marca" }))
+    : [
+        { k: "sim", label: "Sim", Icone: ThumbsUp, cor: "marca" },
+        { k: "nao", label: "Não", Icone: ThumbsDown, cor: "vermelho" },
+        { k: "abstencao", label: "Abstenção", Icone: MinusCircle, cor: "cinza" },
+      ];
+
+  const total = Object.values(pauta.resultado).reduce((s, n) => s + n, 0);
+  const pct = (n: number) => (total ? Math.round((n / total) * 100) : 0);
+  const corBarra = (k: string) =>
+    k === "sim" ? "bg-marca-600" : k === "nao" ? "bg-red-500" : k === "abstencao" ? "bg-slate-400" : "bg-marca-500";
+
+  const votar = async (opcao: string) => {
     setSalvando(true);
     try {
       await api.post(`/api/pautas/${id}/votar/`, { opcao, comentario });
@@ -62,12 +78,6 @@ export default function PautaDetalhe() {
     }
   };
 
-  const opcoes = [
-    { k: "sim" as const, Icone: ThumbsUp, cor: "marca", n: pauta.resultado.sim, label: "Sim" },
-    { k: "nao" as const, Icone: ThumbsDown, cor: "vermelho", n: pauta.resultado.nao, label: "Não" },
-    { k: "abstencao" as const, Icone: MinusCircle, cor: "cinza", n: pauta.resultado.abstencao, label: "Abstenção" },
-  ];
-
   return (
     <div className="space-y-5">
       <button onClick={() => nav(-1)} className="flex items-center gap-1 text-slate-500">
@@ -76,91 +86,112 @@ export default function PautaDetalhe() {
 
       <Card className="p-5">
         <div className="mb-2 flex flex-wrap gap-2">
+          <Badge cor="azul">
+            <Gavel size={12} /> {rotulo.tipoPauta(pauta.tipo)}
+          </Badge>
           {pauta.anonima && (
             <Badge cor="cinza">
               <Lock size={12} /> Voto secreto
             </Badge>
           )}
           <Badge cor={encerrada ? "cinza" : "marca"}>{encerrada ? "Encerrada" : "Aberta"}</Badge>
+          {pauta.aplicada_em && <Badge cor="ouro">✓ Aplicada</Badge>}
         </div>
-        <h1 className="text-2xl font-extrabold text-slate-800">{pauta.titulo}</h1>
+        <h1 className="text-2xl font-extrabold text-slate-800 dark:text-slate-100">{pauta.titulo}</h1>
         <p className="text-sm text-slate-500">{pauta.igreja_nome}</p>
-        {pauta.descricao && <p className="mt-3 whitespace-pre-wrap text-slate-600">{pauta.descricao}</p>}
-        {pauta.prazo_votacao && (
-          <p className="mt-2 text-xs text-slate-400">Prazo: {formatData(pauta.prazo_votacao)}</p>
-        )}
+        {pauta.descricao && <p className="mt-3 whitespace-pre-wrap text-slate-600 dark:text-slate-300">{pauta.descricao}</p>}
+        {pauta.prazo_votacao && <p className="mt-2 text-xs text-slate-400">Prazo: {formatData(pauta.prazo_votacao)}</p>}
         {pauta.quorum_minimo && (
           <p className="mt-1 text-xs text-slate-400">
-            Quórum: {pauta.total_votos}/{pauta.quorum_minimo} votos
-            {pauta.quorum_atingido && " ✓"}
+            Quórum: {pauta.total_votos}/{pauta.quorum_minimo} votos{pauta.quorum_atingido ? " ✓" : ""}
           </p>
         )}
       </Card>
 
+      {/* Proposta (diff) para alteração de igreja */}
+      {pauta.tipo === "alteracao_igreja" && pauta.payload?.depois && (
+        <Card className="p-4">
+          <h2 className="mb-2 font-bold text-slate-700 dark:text-slate-200">Proposta de alteração</h2>
+          <div className="space-y-1 text-sm">
+            {Object.keys(pauta.payload.depois).map((k) => (
+              <div key={k} className="flex flex-wrap gap-1">
+                <span className="font-semibold capitalize text-slate-500">{k}:</span>
+                <span className="text-red-500 line-through">{String(pauta.payload.antes?.[k] ?? "—")}</span>
+                <span>→</span>
+                <span className="font-semibold text-marca-700 dark:text-marca-300">{String(pauta.payload.depois[k])}</span>
+              </div>
+            ))}
+          </div>
+        </Card>
+      )}
+
+      {/* Timeline */}
+      <Timeline pauta={pauta} />
+
       {/* Votação */}
       {!encerrada && (
         <Card className="p-4">
-          <h2 className="mb-3 text-center font-bold text-slate-700">
-            {pauta.meu_voto ? "Você pode alterar seu voto" : "Como você vota?"}
+          <h2 className="mb-3 text-center font-bold text-slate-700 dark:text-slate-200">
+            {pauta.meu_voto ? "Você pode alterar seu voto" : ehEnquete ? "Escolha uma opção" : "Como você vota?"}
           </h2>
-          <div className="grid grid-cols-3 gap-2">
-            {opcoes.map(({ k, Icone, label }) => (
+          <div className={`grid gap-2 ${opcoes.length > 3 ? "grid-cols-2" : "grid-cols-3"}`}>
+            {opcoes.map(({ k, label, Icone }) => (
               <button
                 key={k}
                 onClick={() => votar(k)}
                 disabled={salvando}
                 className={`flex flex-col items-center gap-1 rounded-xl border-2 py-4 font-bold transition ${
                   pauta.meu_voto === k
-                    ? k === "sim"
-                      ? "border-marca-600 bg-marca-600 text-white"
-                      : k === "nao"
-                        ? "border-red-500 bg-red-500 text-white"
-                        : "border-slate-400 bg-slate-400 text-white"
-                    : "border-slate-200 text-slate-600 hover:bg-slate-50"
+                    ? k === "nao"
+                      ? "border-red-500 bg-red-500 text-white"
+                      : k === "abstencao"
+                        ? "border-slate-400 bg-slate-400 text-white"
+                        : "border-marca-600 bg-marca-600 text-white"
+                    : "border-slate-200 text-slate-600 hover:bg-slate-50 dark:border-slate-700"
                 }`}
               >
-                <Icone size={28} /> {label}
+                <Icone size={26} /> <span className="text-center text-sm">{label}</span>
               </button>
             ))}
           </div>
-          <input
-            className="input mt-3"
-            placeholder="Comentário (opcional)"
-            value={comentario}
-            onChange={(e) => setComentario(e.target.value)}
-          />
+          {pauta.permitir_justificativa && (
+            <input
+              className="input mt-3"
+              placeholder="Justificar minha decisão (opcional)"
+              value={comentario}
+              onChange={(e) => setComentario(e.target.value)}
+            />
+          )}
         </Card>
       )}
 
       {/* Resultado */}
       <Card className="p-5">
-        <h2 className="mb-3 font-bold text-slate-800">Resultado ({total} votos)</h2>
+        <h2 className="mb-3 font-bold text-slate-800 dark:text-slate-100">Resultado ({total} votos)</h2>
         <div className="space-y-3">
-          {opcoes.map(({ k, label, n }) => (
+          {Object.entries(pauta.resultado).map(([k, n]) => (
             <div key={k}>
-              <div className="mb-1 flex justify-between text-sm font-medium text-slate-600">
-                <span>{label}</span>
-                <span>
-                  {n} ({pct(n)}%)
-                </span>
+              <div className="mb-1 flex justify-between text-sm font-medium text-slate-600 dark:text-slate-300">
+                <span className="capitalize">{k === "nao" ? "Não" : k}</span>
+                <span>{n} ({pct(n)}%)</span>
               </div>
-              <div className="h-3 overflow-hidden rounded-full bg-slate-100">
-                <div
-                  className={`h-full rounded-full ${
-                    k === "sim" ? "bg-marca-600" : k === "nao" ? "bg-red-500" : "bg-slate-400"
-                  }`}
-                  style={{ width: `${pct(n)}%` }}
-                />
+              <div className="h-3 overflow-hidden rounded-full bg-slate-100 dark:bg-slate-800">
+                <div className={`h-full rounded-full ${corBarra(k)}`} style={{ width: `${pct(n)}%` }} />
               </div>
             </div>
           ))}
         </div>
+        {encerrada && pauta.decisao && (
+          <p className="mt-3 rounded-lg bg-slate-50 p-2 text-center text-sm font-semibold text-slate-600 dark:bg-slate-800 dark:text-slate-300">
+            Decisão: {pauta.decisao === "aprovado" ? "✅ Aprovada" : pauta.decisao === "rejeitado" ? "❌ Rejeitada" : pauta.decisao === "empate" ? "Empate" : `“${pauta.decisao}”`}
+          </p>
+        )}
       </Card>
 
-      {/* Lista de votos (oculta autores se anônima) */}
+      {/* Votos (oculta autores se anônima) */}
       {votos.length > 0 && (
         <section>
-          <h2 className="mb-2 font-bold text-slate-700">Votos</h2>
+          <h2 className="mb-2 font-bold text-slate-700 dark:text-slate-200">Votos</h2>
           <div className="space-y-2">
             {votos.map((v) => (
               <Card key={v.id} className="flex items-center gap-3 p-3">
@@ -171,14 +202,14 @@ export default function PautaDetalhe() {
                     <Lock size={16} />
                   </div>
                 )}
-                <div className="flex-1">
-                  <span className="font-medium text-slate-700">
+                <div className="min-w-0 flex-1">
+                  <span className="font-medium text-slate-700 dark:text-slate-200">
                     {v.usuario_detalhe ? v.usuario_detalhe.nome : "Voto secreto"}
                   </span>
                   {v.comentario && <p className="text-sm text-slate-500">{v.comentario}</p>}
                 </div>
                 <Badge cor={v.opcao === "sim" ? "marca" : v.opcao === "nao" ? "vermelho" : "cinza"}>
-                  {v.opcao === "sim" ? "Sim" : v.opcao === "nao" ? "Não" : "Abstenção"}
+                  {v.opcao === "sim" ? "Sim" : v.opcao === "nao" ? "Não" : v.opcao === "abstencao" ? "Abstenção" : v.opcao}
                 </Badge>
               </Card>
             ))}
@@ -197,9 +228,46 @@ export default function PautaDetalhe() {
         aoFechar={() => setConfirmarEncerrar(false)}
         aoConfirmar={encerrar}
         titulo="Encerrar votação"
-        mensagem="Após encerrar, ninguém mais poderá votar. Continuar?"
+        mensagem="Após encerrar, a decisão é apurada e (se aprovada) aplicada automaticamente. Continuar?"
         confirmarTexto="Encerrar"
       />
     </div>
+  );
+}
+
+function Timeline({ pauta }: { pauta: Pauta }) {
+  const encerrada = pauta.status === "encerrada";
+  const etapas = [
+    { label: "Criada", data: pauta.criado_em, feito: true, Icone: CircleDot },
+    { label: encerrada ? "Votação encerrada" : "Em votação", data: null, feito: true, Icone: Gavel },
+    {
+      label: encerrada
+        ? pauta.decisao === "aprovado" ? "Aprovada" : pauta.decisao === "rejeitado" ? "Rejeitada" : "Encerrada"
+        : "Resultado",
+      data: null,
+      feito: encerrada,
+      Icone: pauta.decisao === "rejeitado" ? XCircle : CheckCircle2,
+    },
+  ];
+  if (pauta.aplicada_em) {
+    etapas.push({ label: "Aplicada", data: pauta.aplicada_em, feito: true, Icone: CheckCircle2 });
+  }
+
+  return (
+    <Card className="p-4">
+      <div className="flex items-center justify-between">
+        {etapas.map((e, i) => (
+          <div key={i} className="flex flex-1 flex-col items-center text-center">
+            <div className={`flex h-9 w-9 items-center justify-center rounded-full ${e.feito ? "bg-marca-600 text-white" : "bg-slate-200 text-slate-400 dark:bg-slate-700"}`}>
+              <e.Icone size={18} />
+            </div>
+            <span className={`mt-1 text-xs font-medium ${e.feito ? "text-slate-700 dark:text-slate-200" : "text-slate-400"}`}>
+              {e.label}
+            </span>
+            {e.data && <span className="text-[10px] text-slate-400">{formatData(e.data)} {formatHora(e.data)}</span>}
+          </div>
+        ))}
+      </div>
+    </Card>
   );
 }

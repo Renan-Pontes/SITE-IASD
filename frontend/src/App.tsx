@@ -24,6 +24,7 @@ import Perfil from "./pages/Perfil";
 import AdminIgreja from "./pages/AdminIgreja";
 import SuperAdmin from "./pages/SuperAdmin";
 import Auditoria from "./pages/Auditoria";
+import Canal from "./pages/Canal";
 
 // Mapa é carregado sob demanda (Leaflet fica fora do bundle principal).
 const Mapa = lazy(() => import("./pages/Mapa"));
@@ -70,6 +71,7 @@ export default function App() {
         <Route path="/grupo/:id" element={<RequireAuth><GrupoDetalhe /></RequireAuth>} />
         <Route path="/evento/novo" element={<RequireAuth><EventoForm /></RequireAuth>} />
         <Route path="/evento/:id/editar" element={<RequireAuth><EventoForm /></RequireAuth>} />
+        <Route path="/igreja/:id/canal" element={<RequireAuth><Canal /></RequireAuth>} />
         <Route path="/pautas" element={<RequireAuth><Pautas /></RequireAuth>} />
         <Route path="/pauta/:id" element={<RequireAuth><PautaDetalhe /></RequireAuth>} />
         <Route path="/aprovacoes" element={<RequireAuth><Aprovacoes /></RequireAuth>} />

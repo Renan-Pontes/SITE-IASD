@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
-import { MapPin, Phone, Settings, ShieldCheck, LogIn } from "lucide-react";
+import { MapPin, Phone, Settings, ShieldCheck, LogIn, Gavel } from "lucide-react";
 import { api } from "../api/client";
 import { useAuth } from "../auth/AuthContext";
 import { useToast } from "../ui/Toast";
@@ -138,11 +138,18 @@ export default function IgrejaDetalhe() {
               </Botao>
             )}
             {sou && (
-              <Link to={`/admin/igreja/${igreja.id}`}>
-                <Botao variante="secondary">
-                  <Settings size={18} /> Administrar
-                </Botao>
-              </Link>
+              <>
+                <Link to={`/igreja/${igreja.id}/canal`}>
+                  <Botao variante="ouro">
+                    <Gavel size={18} /> Canal dos Anciões
+                  </Botao>
+                </Link>
+                <Link to={`/admin/igreja/${igreja.id}`}>
+                  <Botao variante="secondary">
+                    <Settings size={18} /> Administrar
+                  </Botao>
+                </Link>
+              </>
             )}
           </div>
         </div>
