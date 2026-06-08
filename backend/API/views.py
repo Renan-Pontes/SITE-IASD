@@ -254,7 +254,9 @@ class IgrejaViewSet(viewsets.ModelViewSet):
         return [IsAuthenticated()]
 
     def _pode_editar(self, igreja):
-        return roles.eh_lideranca_igreja(self.request.user, igreja)
+        # Edição direta dos dados: só admin da igreja / super. Anciões propõem
+        # alterações pelo Canal dos Anciões (votação).
+        return roles.eh_admin_igreja(self.request.user, igreja)
 
     def update(self, request, *args, **kwargs):
         igreja = self.get_object()

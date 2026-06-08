@@ -52,6 +52,20 @@ def eh_lideranca_igreja(user, igreja):
     return bool(m and m.eh_lideranca)
 
 
+def eh_admin_igreja(user, igreja):
+    """Administrador da igreja (papel admin_igreja) ou super admin.
+
+    Quem pode aplicar alterações de dados da igreja DIRETAMENTE. Anciões/pastores
+    propõem alterações pelo Canal dos Anciões (votação).
+    """
+    if is_super(user):
+        return True
+    from .models import PapelIgreja
+
+    m = membro_ativo(user, igreja)
+    return bool(m and m.papel == PapelIgreja.ADMIN)
+
+
 def grupo_membro_ativo(user, grupo):
     if not user or not user.is_authenticated or grupo is None:
         return None

@@ -327,6 +327,29 @@ class QuorumTests(TestCase):
         self.assertEqual(pauta.status, "encerrada")
 
 
+class IgrejaEdicaoDiretaTests(TestCase):
+    def setUp(self):
+        self.igreja = Igreja.objects.create(nome="IASD Edit", cidade="SP", estado="SP")
+        self.anciao = cria_user("anciao@iasd.app", "Jose Anciao")
+        Membro.objects.create(usuario=self.anciao, igreja=self.igreja, papel=PapelIgreja.ANCIAO, status=StatusVinculo.ATIVO)
+        self.admin = cria_user("admin@iasd.app", "Ada Admin")
+        Membro.objects.create(usuario=self.admin, igreja=self.igreja, papel=PapelIgreja.ADMIN, status=StatusVinculo.ATIVO)
+
+    def test_anciao_nao_edita_igreja_direto(self):
+        c = APIClient(); autentica(c, "anciao@iasd.app")
+        resp = c.patch(f"/api/igrejas/{self.igreja.id}/", {"nome": "Hack"}, format="json")
+        self.assertEqual(resp.status_code, 403)
+        self.igreja.refresh_from_db()
+        self.assertEqual(self.igreja.nome, "IASD Edit")
+
+    def test_admin_edita_igreja_direto(self):
+        c = APIClient(); autentica(c, "admin@iasd.app")
+        resp = c.patch(f"/api/igrejas/{self.igreja.id}/", {"nome": "IASD Nova"}, format="json")
+        self.assertEqual(resp.status_code, 200, resp.content)
+        self.igreja.refresh_from_db()
+        self.assertEqual(self.igreja.nome, "IASD Nova")
+
+
 class CanalAncioesTests(TestCase):
     def setUp(self):
         self.igreja = Igreja.objects.create(nome="IASD Canal", cidade="SP", estado="SP")

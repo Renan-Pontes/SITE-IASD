@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
-import { useNavigate, useParams } from "react-router-dom";
-import { ArrowLeft, Plus, Check, X, Save, Camera, Pencil, Archive } from "lucide-react";
+import { Link, useNavigate, useParams } from "react-router-dom";
+import { ArrowLeft, Plus, Check, X, Save, Camera, Pencil, Archive, Gavel } from "lucide-react";
 import { UploadFoto } from "../components/UploadFoto";
 import { api, ApiError } from "../api/client";
 import { useAuth } from "../auth/AuthContext";
@@ -16,7 +16,7 @@ type Aba = "membros" | "grupos" | "salas" | "dados";
 export default function AdminIgreja() {
   const { id } = useParams();
   const nav = useNavigate();
-  const { lideroIgreja, carregando } = useAuth();
+  const { lideroIgreja, carregando, me, ehSuper } = useAuth();
   const [aba, setAba] = useState<Aba>("membros");
   const [igreja, setIgreja] = useState<Igreja | null>(null);
 
@@ -25,6 +25,13 @@ export default function AdminIgreja() {
   }, [id]);
 
   if (carregando || !igreja) return <Carregando />;
+
+  const ehAdmin =
+    ehSuper ||
+    !!me?.vinculos_igreja.some(
+      (v) => v.igreja === igreja.id && v.papel === "admin_igreja" && v.status === "ativo",
+    );
+
   if (!lideroIgreja(igreja.id)) {
     return (
       <Vazio titulo="Acesso restrito" descricao="Apenas a liderança da igreja pode administrar." />
@@ -63,7 +70,7 @@ export default function AdminIgreja() {
       {aba === "membros" && <Membros igrejaId={igreja.id} />}
       {aba === "grupos" && <Grupos igrejaId={igreja.id} />}
       {aba === "salas" && <Salas igrejaId={igreja.id} />}
-      {aba === "dados" && <Dados igreja={igreja} aoSalvar={setIgreja} />}
+      {aba === "dados" && <Dados igreja={igreja} aoSalvar={setIgreja} ehAdmin={ehAdmin} />}
     </div>
   );
 }
@@ -519,7 +526,11 @@ function EditarSala({
   );
 }
 
-function Dados({ igreja, aoSalvar }: { igreja: Igreja; aoSalvar: (i: Igreja) => void }) {
+function Dados({
+  igreja, aoSalvar, ehAdmin,
+}: {
+  igreja: Igreja; aoSalvar: (i: Igreja) => void; ehAdmin: boolean;
+}) {
   const toast = useToast();
   const [form, setForm] = useState({
     nome: igreja.nome,
@@ -532,6 +543,27 @@ function Dados({ igreja, aoSalvar }: { igreja: Igreja; aoSalvar: (i: Igreja) => 
   });
   const [salvando, setSalvando] = useState(false);
   const set = (k: string) => (e: React.ChangeEvent<any>) => setForm({ ...form, [k]: e.target.value });
+
+  // Anciões/pastores (não-admin) não editam direto — propõem pelo Canal.
+  if (!ehAdmin) {
+    return (
+      <Card className="space-y-3 p-5 text-center">
+        <Gavel className="mx-auto text-marca-600" size={32} />
+        <h3 className="font-bold text-slate-800 dark:text-slate-100">
+          Alterações passam pelo Canal dos Anciões
+        </h3>
+        <p className="text-sm text-slate-500">
+          Para mudar os dados desta igreja, crie uma proposta no Canal dos Anciões.
+          Ela será votada e aplicada automaticamente se aprovada.
+        </p>
+        <Link to={`/igreja/${igreja.id}/canal`}>
+          <Botao>
+            <Gavel size={18} /> Ir para o Canal dos Anciões
+          </Botao>
+        </Link>
+      </Card>
+    );
+  }
 
   const salvar = async () => {
     setSalvando(true);
