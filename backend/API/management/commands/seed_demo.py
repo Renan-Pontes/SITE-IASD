@@ -118,6 +118,7 @@ class Command(BaseCommand):
                 "longitude": -46.6333,
                 "telefone": "(11) 3256-7890",
                 "email": "central@iasd.app",
+                "cor_primaria": "#16a34a",
             },
         )
         horto, _ = Igreja.objects.get_or_create(
@@ -132,6 +133,7 @@ class Command(BaseCommand):
                 "longitude": -47.2200,
                 "telefone": "(19) 3865-1234",
                 "email": "hortolandia@iasd.app",
+                "cor_primaria": "#2563eb",
             },
         )
 
@@ -183,15 +185,15 @@ class Command(BaseCommand):
         # --- Grupos ---
         jovens, _ = Grupo.objects.get_or_create(
             nome="Ministério Jovem", igreja=central,
-            defaults={"tipo": "jovens", "descricao": "Jovens adventistas da Central."},
+            defaults={"tipo": "jovens", "descricao": "Jovens adventistas da Central.", "cor": "#9333ea"},
         )
         louvor, _ = Grupo.objects.get_or_create(
             nome="Ministério de Música", igreja=central,
-            defaults={"tipo": "musica", "descricao": "Coral e banda da igreja."},
+            defaults={"tipo": "musica", "descricao": "Coral e banda da igreja.", "cor": "#0891b2"},
         )
         desbravadores, _ = Grupo.objects.get_or_create(
             nome="Clube de Desbravadores Águias", igreja=central,
-            defaults={"tipo": "desbravadores", "descricao": "Clube de desbravadores."},
+            defaults={"tipo": "desbravadores", "descricao": "Clube de desbravadores.", "cor": "#f59e0b"},
         )
 
         def gm(user, grupo, cargo, status=StatusVinculo.ATIVO):

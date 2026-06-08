@@ -720,6 +720,42 @@ class SearchTests(TestCase):
         self.assertTrue(any("Joao" in p["nome"] for p in resp.data["pessoas"]))
 
 
+class SeguirIgrejaTests(TestCase):
+    def test_seguir_e_deixar(self):
+        igreja = Igreja.objects.create(nome="IASD Seguir", cidade="SP", estado="SP")
+        cria_user("u@iasd.app")
+        c = APIClient(); autentica(c, "u@iasd.app")
+        r = c.post(f"/api/igrejas/{igreja.id}/seguir/")
+        self.assertTrue(r.data["eu_sigo"])
+        det = c.get(f"/api/igrejas/{igreja.id}/")
+        self.assertTrue(det.data["eu_sigo"])
+        seg = c.get("/api/igrejas/seguidas/")
+        self.assertEqual(len(seg.data), 1)
+        c.post(f"/api/igrejas/{igreja.id}/deixar-de-seguir/")
+        det = c.get(f"/api/igrejas/{igreja.id}/")
+        self.assertFalse(det.data["eu_sigo"])
+
+    def test_calendario_curado_so_membro_e_seguidas(self):
+        # Igreja A: usuário é membro. Igreja B: não segue. Igreja C: segue.
+        from datetime import timedelta as td
+        ag = timezone.now()
+        a = Igreja.objects.create(nome="A", cidade="SP", estado="SP")
+        b = Igreja.objects.create(nome="B", cidade="SP", estado="SP")
+        cc = Igreja.objects.create(nome="C", cidade="SP", estado="SP")
+        for ig, t in [(a, "EvA"), (b, "EvB"), (cc, "EvC")]:
+            Evento.objects.create(titulo=t, igreja=ig, inicio=ag + td(days=1), fim=ag + td(days=1, hours=1),
+                                  status=StatusEvento.APROVADO, visibilidade=VisibilidadeEvento.PUBLICO)
+        u = cria_user("u@iasd.app")
+        Membro.objects.create(usuario=u, igreja=a, papel=PapelIgreja.MEMBRO, status=StatusVinculo.ATIVO)
+        c = APIClient(); autentica(c, "u@iasd.app")
+        c.post(f"/api/igrejas/{cc.id}/seguir/")
+        resp = c.get("/api/calendario/")
+        titulos = {o["titulo"] for o in resp.data}
+        self.assertIn("EvA", titulos)   # membro
+        self.assertIn("EvC", titulos)   # segue
+        self.assertNotIn("EvB", titulos)  # não segue nem é membro
+
+
 class DistanciaIgrejaTests(TestCase):
     def test_ordena_por_proximidade(self):
         Igreja.objects.create(nome="Perto", latitude=-23.55, longitude=-46.63, cidade="SP", estado="SP")

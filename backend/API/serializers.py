@@ -181,6 +181,7 @@ class IgrejaSerializer(serializers.ModelSerializer):
     distancia_km = serializers.SerializerMethodField()
     meu_status = serializers.SerializerMethodField()
     meu_papel = serializers.SerializerMethodField()
+    eu_sigo = serializers.SerializerMethodField()
 
     class Meta:
         model = Igreja
@@ -198,14 +199,29 @@ class IgrejaSerializer(serializers.ModelSerializer):
             "telefone",
             "email",
             "foto",
+            "cor_primaria",
             "ativo",
             "total_membros",
             "distancia_km",
             "meu_status",
             "meu_papel",
+            "eu_sigo",
             "criado_em",
         ]
         read_only_fields = ["slug", "foto", "criado_em"]
+
+    def get_eu_sigo(self, obj):
+        request = self.context.get("request")
+        if not request or not request.user.is_authenticated:
+            return False
+        from .models import IgrejaSeguidor
+
+        cache = self.context.setdefault("_seguidas_cache", {})
+        if request.user.id not in cache:
+            cache[request.user.id] = set(
+                IgrejaSeguidor.objects.filter(usuario=request.user).values_list("igreja_id", flat=True)
+            )
+        return obj.id in cache[request.user.id]
 
     def get_total_membros(self, obj):
         if hasattr(obj, "total_membros_anot"):
@@ -280,6 +296,7 @@ class GrupoSerializer(serializers.ModelSerializer):
             "igreja",
             "igreja_nome",
             "foto",
+            "cor",
             "ativo",
             "total_membros",
             "meu_status",
@@ -356,6 +373,8 @@ class SalaSerializer(serializers.ModelSerializer):
 # --------------------------------------------------------------------------- #
 class EventoSerializer(serializers.ModelSerializer):
     igreja_nome = serializers.CharField(source="igreja.nome", read_only=True)
+    cor_igreja = serializers.CharField(source="igreja.cor_primaria", read_only=True)
+    cor_grupo = serializers.SerializerMethodField()
     grupo_nome = serializers.CharField(source="grupo.nome", read_only=True)
     sala_nome = serializers.CharField(source="sala.nome", read_only=True)
     criado_por_detalhe = UsuarioMiniSerializer(source="criado_por", read_only=True)
@@ -371,6 +390,8 @@ class EventoSerializer(serializers.ModelSerializer):
             "descricao",
             "igreja",
             "igreja_nome",
+            "cor_igreja",
+            "cor_grupo",
             "grupo",
             "grupo_nome",
             "sala",
@@ -408,6 +429,9 @@ class EventoSerializer(serializers.ModelSerializer):
                 {"fim": "O término não pode ser antes do início."}
             )
         return attrs
+
+    def get_cor_grupo(self, obj):
+        return obj.grupo.cor if obj.grupo_id else None
 
     def get_total_confirmados(self, obj):
         if hasattr(obj, "total_confirmados_anot"):

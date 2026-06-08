@@ -26,6 +26,7 @@ from .models import (
     Grupo,
     GrupoMembro,
     Igreja,
+    IgrejaSeguidor,
     Inscricao,
     Membro,
     Mensagem,
@@ -374,6 +375,8 @@ class IgrejaViewSet(viewsets.ModelViewSet):
         if request.user.profile.igreja_principal_id is None:
             request.user.profile.igreja_principal = igreja
             request.user.profile.save(update_fields=["igreja_principal"])
+        # Ao entrar, passa a seguir automaticamente (pode deixar depois).
+        IgrejaSeguidor.objects.get_or_create(usuario=request.user, igreja=igreja)
         log_acao(request.user, "pedir_entrada_igreja", "Igreja", igreja.id)
         # Avisa a liderança.
         for lider in Membro.objects.filter(
@@ -450,6 +453,25 @@ class IgrejaViewSet(viewsets.ModelViewSet):
         return Response(
             MembroSerializer(qs, many=True, context={"request": request}).data
         )
+
+    # --- seguir (curadoria de feed; != ser membro) ---
+    @action(detail=True, methods=["post"], permission_classes=[IsAuthenticated])
+    def seguir(self, request, pk=None):
+        igreja = self.get_object()
+        IgrejaSeguidor.objects.get_or_create(usuario=request.user, igreja=igreja)
+        return Response({"eu_sigo": True})
+
+    @action(detail=True, methods=["post"], permission_classes=[IsAuthenticated], url_path="deixar-de-seguir")
+    def deixar_de_seguir(self, request, pk=None):
+        igreja = self.get_object()
+        IgrejaSeguidor.objects.filter(usuario=request.user, igreja=igreja).delete()
+        return Response({"eu_sigo": False})
+
+    @action(detail=False, methods=["get"], permission_classes=[IsAuthenticated])
+    def seguidas(self, request):
+        ids = IgrejaSeguidor.objects.filter(usuario=request.user).values_list("igreja_id", flat=True)
+        qs = Igreja.objects.filter(id__in=ids, ativo=True)
+        return Response(IgrejaSerializer(qs, many=True, context={"request": request}).data)
 
 
 # --------------------------------------------------------------------------- #
@@ -1249,12 +1271,43 @@ class CalendarioView(APIView):
         inicio_janela = de or (agora - timedelta(days=1)).isoformat()
         fim_janela = ate or (agora + timedelta(days=90)).isoformat()
 
-        # Reusa a lógica de visibilidade do EventoViewSet.
-        vs = EventoViewSet()
-        vs.request = request
-        vs.action = "list"
-        vs.format_kwarg = None
-        qs = vs.get_queryset().filter(status=StatusEvento.APROVADO)
+        user = request.user
+        base = Evento.objects.filter(status=StatusEvento.APROVADO).select_related(
+            "igreja", "grupo", "sala", "criado_por", "criado_por__profile"
+        ).prefetch_related("inscricoes")
+
+        if not user.is_authenticated:
+            # Visitante: programação pública de todas as igrejas.
+            qs = base.filter(visibilidade=VisibilidadeEvento.PUBLICO)
+        else:
+            # Calendário consolidado e CURADO: igrejas onde é membro + que segue
+            # (+ próximas, se pedir). Evita poluir com todas as igrejas do sistema.
+            membro_ids = set(
+                Membro.objects.filter(usuario=user, status=StatusVinculo.ATIVO).values_list("igreja_id", flat=True)
+            )
+            seguidas_ids = set(
+                IgrejaSeguidor.objects.filter(usuario=user).values_list("igreja_id", flat=True)
+            )
+            relevantes = membro_ids | seguidas_ids
+
+            if request.query_params.get("proximas") == "1":
+                prof = getattr(user, "profile", None)
+                if prof and prof.latitude is not None and prof.longitude is not None:
+                    for ig in Igreja.objects.filter(ativo=True).exclude(id__in=relevantes):
+                        if ig.latitude is None:
+                            continue
+                        d = haversine_km(prof.latitude, prof.longitude, ig.latitude, ig.longitude)
+                        if d is not None and d <= 50:
+                            relevantes.add(ig.id)
+
+            grupos_ids = list(
+                GrupoMembro.objects.filter(usuario=user, status=StatusVinculo.ATIVO).values_list("grupo_id", flat=True)
+            )
+            qs = base.filter(
+                Q(igreja_id__in=relevantes, visibilidade=VisibilidadeEvento.PUBLICO)
+                | Q(grupo_id__in=grupos_ids)
+                | Q(criado_por=user)
+            ).distinct()
 
         if request.query_params.get("igreja"):
             qs = qs.filter(igreja_id=request.query_params["igreja"])

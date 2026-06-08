@@ -148,6 +148,7 @@ class Igreja(models.Model):
     telefone = models.CharField(max_length=20, blank=True)
     email = models.EmailField(blank=True)
     foto = models.ImageField(upload_to="igrejas/", null=True, blank=True)
+    cor_primaria = models.CharField(max_length=7, default="#16a34a")
 
     ativo = models.BooleanField(default=True)
     criado_em = models.DateTimeField(auto_now_add=True)
@@ -229,6 +230,32 @@ def ensure_profile_exists(sender, instance, created, **kwargs):
 
 
 # --------------------------------------------------------------------------- #
+# IgrejaSeguidor: curadoria de feed (seguir != ser membro)
+# --------------------------------------------------------------------------- #
+class IgrejaSeguidor(models.Model):
+    usuario = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="igrejas_seguidas"
+    )
+    igreja = models.ForeignKey(
+        Igreja, on_delete=models.CASCADE, related_name="seguidores"
+    )
+    criado_em = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        verbose_name = "Seguidor de igreja"
+        verbose_name_plural = "Seguidores de igreja"
+        constraints = [
+            models.UniqueConstraint(
+                fields=["usuario", "igreja"], name="uniq_seguidor_usuario_igreja"
+            )
+        ]
+        indexes = [models.Index(fields=["usuario"])]
+
+    def __str__(self):
+        return f"{self.usuario} segue {self.igreja}"
+
+
+# --------------------------------------------------------------------------- #
 # Membro: vínculo Usuário <-> Igreja (com papel local e aprovação)
 # --------------------------------------------------------------------------- #
 class Membro(models.Model):
@@ -295,6 +322,7 @@ class Grupo(models.Model):
         Igreja, on_delete=models.CASCADE, related_name="grupos"
     )
     foto = models.ImageField(upload_to="grupos/", null=True, blank=True)
+    cor = models.CharField(max_length=7, default="#64748b")
     ativo = models.BooleanField(default=True)
     criado_em = models.DateTimeField(auto_now_add=True)
 
