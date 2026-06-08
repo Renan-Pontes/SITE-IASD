@@ -97,7 +97,15 @@ Criadas pelo `seed_demo`:
 | `membro@iasd.app`    | `iasd1234`      | Membro |
 | `visitante@iasd.app` | `iasd1234`      | Visitante (entrada pendente) |
 
-> ⚠️ Troque a senha do Mestre antes de qualquer uso real.
+> ⚠️ **Todas as personas de demonstração usam a senha `iasd1234`.** Rodar
+> `python manage.py seed_demo` de novo é idempotente, mas **não** redefine
+> senhas já existentes. Para resetar **todas** as contas para `iasd1234`:
+>
+> ```bash
+> python manage.py shell -c "from django.contrib.auth import get_user_model; U=get_user_model(); [ (u.set_password('iasd1234'), u.save()) for u in U.objects.all() ]"
+> ```
+>
+> ⚠️ Troque a senha do Mestre (`renan@iasd.app`) antes de qualquer uso real.
 
 ---
 
