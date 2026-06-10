@@ -25,9 +25,19 @@ aprovadas:
 Quando a pauta encerra **aprovada**, o sistema **aplica o payload automaticamente**
 (cria o grupo/sala, edita a igreja, agenda o evento) e marca `aplicada_em`.
 
-> **Eventos do dia a dia** (de um grupo) seguem o fluxo mais leve de aprovação:
-> membro propõe → fica `pendente` → um ancião aprova. Para programação que afeta a
-> igreja inteira, use o Canal (votação completa).
+### Evento: público = pauta · privado = aprovação leve
+
+A visibilidade do evento define o rito (exceto para anciões, que decidem direto):
+
+- **Público** (afeta a igreja toda): de quem **não é ancião** vira **Pauta**
+  (`agendar_evento`) no Canal dos Anciões — não publica direto. Ao aprovar, o
+  evento é criado automaticamente (com re-checagem de conflito de sala).
+- **Privado** (escopo de grupo): **aprovação leve** — fica `pendente` e um
+  **líder do grupo** ou a liderança da igreja aprova. Sem votação.
+- **Ancião/pastor/admin:** cria **direto** (aprovado), em qualquer visibilidade.
+
+> Resumo: **público = pauta dos anciões; privado = aprovação leve.** A auditoria
+> (`/api/auditoria/`) registra criações, aprovações, votos e acessos sigilosos.
 
 ## Canais (`Pauta.canal`)
 

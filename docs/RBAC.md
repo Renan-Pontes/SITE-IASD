@@ -40,15 +40,16 @@ em [`backend/API/roles.py`](../backend/API/roles.py) e
 | Entrar num grupo | usuário logado (vira `GrupoMembro` **pendente**) |
 | Aprovar membro de grupo · definir cargo | líder/diretor do grupo ou liderança da igreja |
 | Ver/postar no chat do grupo | membros ativos do grupo (e liderança) |
-| Criar evento | membro ativo da igreja → **pendente**; liderança → **aprovado direto** |
-| Aprovar/rejeitar/cancelar evento | liderança da igreja (cancelar: também o criador) |
+| Criar evento **público** | vira **pauta** no Canal dos Anciões (ancião cria direto) |
+| Criar evento **privado** | **pendente** → líder do grupo / liderança aprova (ancião: direto) |
+| Aprovar/rejeitar/cancelar evento | liderança da igreja, ou líder do grupo (privados); cancelar: também o criador |
+| Ver auditoria | super, liderança ou secretaria (filtros + export CSV) |
 | Editar/excluir evento | criador ou liderança da igreja |
 | Confirmar presença (RSVP) | qualquer usuário logado |
 | Ver evento | público aprovado: todos · privado: membros do grupo · pendente/rascunho: criador + liderança |
 | Criar/editar pauta · votar · encerrar (Canal dos Anciões) | liderança da igreja (anciões) |
 | Criar/editar/votar/encerrar pauta (Canal da Liderança) | líderes de igreja; anciões votam de forma **consultiva** (não conta p/ quórum) |
-| Ver votos (com autor) | eleitorado do canal + proponente — autor oculto se anônima |
-| Ver auditoria | super_admin |
+| Ver votos (com autor) | eleitorado do canal + proponente — autor oculto se anônima (secretaria revela, sob auditoria) |
 
 ## Canais de pauta (`Pauta.canal`)
 

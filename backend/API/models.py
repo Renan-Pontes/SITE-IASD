@@ -898,6 +898,7 @@ class Pauta(models.Model):
                     inicio=ini,
                     fim=fim,
                     sala_id=sala_id,
+                    grupo_id=p.get("grupo"),
                     visibilidade=p.get("visibilidade", "publico"),
                     status=StatusEvento.APROVADO,
                     criado_por=self.criada_por,

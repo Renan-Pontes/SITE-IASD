@@ -156,10 +156,12 @@ class EventoWorkflowTests(TestCase):
         self.fim = (timezone.now() + timedelta(days=5, hours=2)).isoformat()
 
     def _payload(self, **kw):
+        # Privado por padrão: evento PÚBLICO de quem não é ancião vira pauta
+        # (ver PublicoPautaTests). O fluxo pendente é dos eventos privados.
         base = {
             "titulo": "Evento Teste", "descricao": "x",
             "igreja": self.igreja.id, "inicio": self.inicio, "fim": self.fim,
-            "visibilidade": VisibilidadeEvento.PUBLICO,
+            "visibilidade": VisibilidadeEvento.PRIVADO,
         }
         base.update(kw)
         return base
@@ -918,6 +920,80 @@ class SecretariaTests(TestCase):
         self.assertTrue(r.data["secretaria"])
         membro.refresh_from_db()
         self.assertTrue(membro.secretaria)
+
+
+class PublicoPautaTests(TestCase):
+    def setUp(self):
+        self.igreja = Igreja.objects.create(nome="IASD Pub", cidade="SP", estado="SP")
+        self.anciao = cria_user("anciao@iasd.app", "Jose Anciao")
+        Membro.objects.create(usuario=self.anciao, igreja=self.igreja, papel=PapelIgreja.ANCIAO, status=StatusVinculo.ATIVO)
+        self.membro = cria_user("membro@iasd.app", "Maria Membro")
+        Membro.objects.create(usuario=self.membro, igreja=self.igreja, papel=PapelIgreja.MEMBRO, status=StatusVinculo.ATIVO)
+        self.ini = (timezone.now() + timedelta(days=4)).isoformat()
+        self.fim = (timezone.now() + timedelta(days=4, hours=2)).isoformat()
+
+    def _payload(self, vis):
+        return {"titulo": "Festa", "igreja": self.igreja.id, "inicio": self.ini, "fim": self.fim, "visibilidade": vis}
+
+    def test_publico_de_membro_vira_pauta(self):
+        c = APIClient(); autentica(c, "membro@iasd.app")
+        r = c.post("/api/eventos/", self._payload("publico"), format="json")
+        self.assertEqual(r.status_code, 202, r.content)
+        self.assertEqual(r.data["status"], "pauta_aberta")
+        self.assertFalse(Evento.objects.filter(titulo="Festa").exists())
+        self.assertTrue(Pauta.objects.filter(id=r.data["pauta_id"], tipo="agendar_evento").exists())
+
+    def test_publico_de_anciao_direto(self):
+        c = APIClient(); autentica(c, "anciao@iasd.app")
+        r = c.post("/api/eventos/", self._payload("publico"), format="json")
+        self.assertEqual(r.status_code, 201, r.content)
+        self.assertEqual(r.data["status"], StatusEvento.APROVADO)
+
+    def test_privado_de_membro_pendente(self):
+        c = APIClient(); autentica(c, "membro@iasd.app")
+        r = c.post("/api/eventos/", self._payload("privado"), format="json")
+        self.assertEqual(r.status_code, 201, r.content)
+        self.assertEqual(r.data["status"], StatusEvento.PENDENTE)
+
+    def test_pauta_aprovada_cria_evento(self):
+        c = APIClient(); autentica(c, "membro@iasd.app")
+        pid = c.post("/api/eventos/", self._payload("publico"), format="json").data["pauta_id"]
+        a = APIClient(); autentica(a, "anciao@iasd.app")
+        a.post(f"/api/pautas/{pid}/votar/", {"opcao": "sim"}, format="json")
+        p = Pauta.objects.get(pk=pid)
+        self.assertEqual(p.decisao, "aprovado")
+        self.assertTrue(Evento.objects.filter(titulo="Festa", status=StatusEvento.APROVADO).exists())
+
+
+class AuditoriaPainelTests(TestCase):
+    def setUp(self):
+        self.igreja = Igreja.objects.create(nome="IASD Aud", cidade="SP", estado="SP")
+        self.anciao = cria_user("anciao@iasd.app", "Jose Anciao")
+        Membro.objects.create(usuario=self.anciao, igreja=self.igreja, papel=PapelIgreja.ANCIAO, status=StatusVinculo.ATIVO)
+        self.membro = cria_user("membro@iasd.app", "Maria Membro")
+        Membro.objects.create(usuario=self.membro, igreja=self.igreja, papel=PapelIgreja.MEMBRO, status=StatusVinculo.ATIVO)
+        AuditLog.objects.create(acao="aprovar_evento", entidade="Evento", entidade_id=1)
+
+    def test_anciao_ve_auditoria(self):
+        c = APIClient(); autentica(c, "anciao@iasd.app")
+        self.assertEqual(c.get("/api/auditoria/").status_code, 200)
+
+    def test_membro_comum_nao_ve_auditoria(self):
+        c = APIClient(); autentica(c, "membro@iasd.app")
+        self.assertEqual(c.get("/api/auditoria/").status_code, 403)
+
+    def test_exportar_csv(self):
+        c = APIClient(); autentica(c, "anciao@iasd.app")
+        r = c.get("/api/auditoria/exportar/")
+        self.assertEqual(r.status_code, 200)
+        self.assertIn("text/csv", r["Content-Type"])
+
+    def test_filtro_tipo(self):
+        c = APIClient(); autentica(c, "anciao@iasd.app")
+        r = c.get("/api/auditoria/?tipo=evento")
+        self.assertEqual(r.status_code, 200)
+        results = r.data.get("results", r.data)
+        self.assertTrue(any(x["entidade"] == "Evento" for x in results))
 
 
 class MonoIgrejaTests(TestCase):

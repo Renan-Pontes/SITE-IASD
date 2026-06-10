@@ -8,9 +8,11 @@ import {
   MapPin,
   ChevronRight,
   Gavel,
+  ScrollText,
 } from "lucide-react";
 import { api } from "../api/client";
 import { useAuth } from "../auth/AuthContext";
+import { formatData } from "../lib/format";
 import type { Dashboard as DashboardData } from "../lib/types";
 import { EventoCard } from "../components/EventoCard";
 import { MinhasPendencias } from "../components/MinhasPendencias";
@@ -118,6 +120,32 @@ export default function Dashboard() {
                 </div>
                 <ChevronRight size={16} className="shrink-0 text-slate-300" />
               </Link>
+            ))}
+          </div>
+        </Card>
+      )}
+
+      {/* Atividade recente (liderança/secretaria) */}
+      {data?.pode_ver_auditoria && data.atividade_recente.length > 0 && (
+        <Card className="p-4">
+          <div className="mb-2 flex items-center justify-between">
+            <h2 className="flex items-center gap-2 font-bold text-slate-700 dark:text-slate-200">
+              <ScrollText size={18} className="text-marca-600" /> Atividade recente
+            </h2>
+            <Link to="/auditoria" className="flex items-center text-sm font-semibold text-marca-700">
+              Ver tudo <ChevronRight size={16} />
+            </Link>
+          </div>
+          <div className="space-y-1.5">
+            {data.atividade_recente.map((r) => (
+              <div key={r.id} className="flex items-start justify-between gap-2 text-sm">
+                <span className="min-w-0 text-slate-600 dark:text-slate-300">
+                  <span className="font-semibold">{r.usuario_detalhe?.nome || "Sistema"}</span>{" "}
+                  — {r.acao}
+                  {r.entidade && ` (${r.entidade})`}
+                </span>
+                <span className="shrink-0 text-xs text-slate-400">{formatData(r.criado_em)}</span>
+              </div>
             ))}
           </div>
         </Card>

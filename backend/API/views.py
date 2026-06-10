@@ -22,6 +22,7 @@ from rest_framework.views import APIView
 from . import roles
 from .models import (
     Ata,
+    AuditLog,
     CargoGrupo,
     EnqueteGrupo,
     EnqueteOpcao,
@@ -49,7 +50,7 @@ from .models import (
     VisibilidadeEvento,
     Voto,
 )
-from .permissions import IsSuperAdmin
+from .permissions import IsSuperAdmin, PodeVerAuditoria
 from .serializers import (
     AtaSerializer,
     AuditLogSerializer,
@@ -1160,6 +1161,46 @@ class EventoViewSet(viewsets.ModelViewSet):
             ).distinct()
         return base
 
+    def create(self, request, *args, **kwargs):
+        """Governança da programação:
+
+        - Evento **público** de quem NÃO é ancião → vira **Pauta** no Canal dos
+          Anciões (não publica direto). Retorna 202 {status: pauta_aberta}.
+        - Evento **privado** ou criado por ancião → fluxo leve (perform_create):
+          ancião aprova direto; demais ficam pendentes (aprovação leve).
+        """
+        from rest_framework.exceptions import PermissionDenied
+
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        igreja = serializer.validated_data["igreja"]
+        user = request.user
+        if not (roles.eh_membro(user, igreja) or roles.eh_lideranca_igreja(user, igreja)):
+            raise PermissionDenied("Você precisa ser membro da igreja para criar eventos.")
+
+        visibilidade = serializer.validated_data.get("visibilidade", VisibilidadeEvento.PUBLICO)
+        if visibilidade == VisibilidadeEvento.PUBLICO and not roles.eh_lideranca_igreja(user, igreja):
+            d = serializer.validated_data
+            pauta = _abrir_pauta_criacao(
+                user, igreja, "agendar_evento",
+                f"Agendar evento: {d['titulo']}", "programacao",
+                {
+                    "titulo": d["titulo"],
+                    "descricao": d.get("descricao", ""),
+                    "inicio": d["inicio"].isoformat(),
+                    "fim": d["fim"].isoformat(),
+                    "visibilidade": "publico",
+                    "sala": d["sala"].id if d.get("sala") else None,
+                    "grupo": d["grupo"].id if d.get("grupo") else None,
+                },
+            )
+            log_acao(user, "evento_publico_vira_pauta", "Pauta", pauta.id)
+            return _resposta_pauta_aberta(pauta)
+
+        self.perform_create(serializer)
+        headers = self.get_success_headers(serializer.data)
+        return Response(serializer.data, status=status.HTTP_201_CREATED, headers=headers)
+
     def perform_create(self, serializer):
         igreja = serializer.validated_data["igreja"]
         user = self.request.user
@@ -1210,7 +1251,12 @@ class EventoViewSet(viewsets.ModelViewSet):
     @action(detail=True, methods=["post"])
     def aprovar(self, request, pk=None):
         evento = self.get_object()
-        if not roles.eh_lideranca_igreja(request.user, evento.igreja):
+        # Aprovação leve: liderança da igreja, ou o líder do grupo (eventos privados
+        # do grupo). Eventos públicos não chegam aqui — passam pelo Canal dos Anciões.
+        pode = roles.eh_lideranca_igreja(request.user, evento.igreja) or (
+            evento.grupo_id and roles.eh_lideranca_grupo(request.user, evento.grupo)
+        )
+        if not pode:
             return Response({"detail": "Sem permissão."}, status=403)
         evento.status = StatusEvento.APROVADO
         evento.aprovado_por = request.user
@@ -1741,11 +1787,38 @@ class NotificacaoViewSet(viewsets.ReadOnlyModelViewSet):
 # --------------------------------------------------------------------------- #
 class AuditLogViewSet(viewsets.ReadOnlyModelViewSet):
     serializer_class = AuditLogSerializer
-    permission_classes = [IsSuperAdmin]
+    permission_classes = [PodeVerAuditoria]
     filterset_fields = ["entidade", "acao"]
 
     def get_queryset(self):
-        return AuditLog.objects.select_related("usuario", "usuario__profile")
+        qs = AuditLog.objects.select_related("usuario", "usuario__profile")
+        p = self.request.query_params
+        inicio, fim, tipo = p.get("inicio"), p.get("fim"), p.get("tipo")
+        if inicio:
+            qs = qs.filter(criado_em__gte=inicio)
+        if fim:
+            qs = qs.filter(criado_em__lte=fim)
+        if tipo:
+            # "tipo" busca por entidade OU ação (filtro de conveniência do painel).
+            qs = qs.filter(Q(entidade__icontains=tipo) | Q(acao__icontains=tipo))
+        return qs
+
+    @action(detail=False, methods=["get"])
+    def exportar(self, request):
+        """Exporta a atividade filtrada em CSV (para auditoria/planilha)."""
+        import csv
+
+        qs = self.filter_queryset(self.get_queryset())[:5000]
+        resp = HttpResponse(content_type="text/csv; charset=utf-8")
+        resp["Content-Disposition"] = 'attachment; filename="auditoria.csv"'
+        resp.write("﻿")  # BOM p/ Excel reconhecer UTF-8
+        w = csv.writer(resp)
+        w.writerow(["Data/hora", "Usuário", "Ação", "Entidade", "ID", "Detalhes"])
+        for r in qs:
+            quando = timezone.localtime(r.criado_em).strftime("%d/%m/%Y %H:%M:%S")
+            nome = r.usuario.get_full_name() or r.usuario.username if r.usuario else "Sistema"
+            w.writerow([quando, nome, r.acao, r.entidade, r.entidade_id or "", r.detalhes or ""])
+        return resp
 
 
 # --------------------------------------------------------------------------- #
@@ -1945,6 +2018,20 @@ def dashboard(request):
         .order_by("-criado_em")[:10]
     )
 
+    # Atividade recente (auditoria) para liderança/secretaria.
+    eh_secretaria = Membro.objects.filter(
+        usuario=user, status=StatusVinculo.ATIVO, secretaria=True
+    ).exists()
+    atividade_recente = []
+    if igrejas_lidera or eh_secretaria or roles.is_super(user):
+        from .models import AuditLog
+        from .serializers import AuditLogSerializer
+
+        registros = AuditLog.objects.select_related("usuario", "usuario__profile").order_by(
+            "-criado_em"
+        )[:8]
+        atividade_recente = AuditLogSerializer(registros, many=True).data
+
     ctx = {"request": request}
     return Response(
         {
@@ -1962,6 +2049,8 @@ def dashboard(request):
             "pautas_aguardando": PautaSerializer(
                 pautas_aguardando, many=True, context=ctx
             ).data,
+            "atividade_recente": atividade_recente,
+            "pode_ver_auditoria": bool(igrejas_lidera or eh_secretaria or roles.is_super(user)),
             "sou_lideranca": len(igrejas_lidera) > 0,
         }
     )

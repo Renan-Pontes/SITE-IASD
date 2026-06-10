@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { Link, NavLink, Outlet, useLocation, useNavigate } from "react-router-dom";
-import { Home, CalendarDays, Church, Users, Bell, User, Search, Plus, Keyboard } from "lucide-react";
+import { Home, CalendarDays, Church, Users, Bell, User, Search, Plus, Keyboard, ScrollText } from "lucide-react";
 import { useAuth } from "../auth/AuthContext";
 import { api } from "../api/client";
 import { Avatar } from "../ui/components";
@@ -136,7 +136,9 @@ function BottomNav() {
 
 // --- Barra lateral (desktop ≥ lg) ---
 function Sidebar({ naoLidas }: { naoLidas: number }) {
-  const { me, logado, multiChurch } = useAuth();
+  const { me, logado, multiChurch, ehSuper, souLideranca } = useAuth();
+  const podeAuditoria =
+    ehSuper || souLideranca || !!me?.vinculos_igreja.some((v) => v.secretaria && v.status === "ativo");
   return (
     <aside className="sticky top-0 hidden h-screen w-64 shrink-0 flex-col border-r border-slate-100 bg-white dark:border-slate-800 lg:flex">
       <div className="p-5">
@@ -181,6 +183,21 @@ function Sidebar({ naoLidas }: { naoLidas: number }) {
             <Bell size={22} />
             <span className="flex-1">Notificações</span>
             <Badge n={naoLidas} />
+          </NavLink>
+        )}
+        {logado && podeAuditoria && (
+          <NavLink
+            to="/auditoria"
+            className={({ isActive }) =>
+              `flex items-center gap-3 rounded-xl px-3 py-2.5 text-base font-semibold transition ${
+                isActive
+                  ? "bg-marca-50 text-marca-700 dark:bg-marca-900/30 dark:text-marca-300"
+                  : "text-slate-600 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800"
+              }`
+            }
+          >
+            <ScrollText size={22} />
+            Auditoria
           </NavLink>
         )}
       </nav>

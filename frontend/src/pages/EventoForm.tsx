@@ -159,9 +159,16 @@ export default function EventoForm() {
       recorrencia: form.recorrencia,
     };
     try {
-      const ev = editando
+      const resp = editando
         ? await api.patch<Evento>(`/api/eventos/${id}/`, payload)
-        : await api.post<Evento>("/api/eventos/", payload);
+        : await api.post<Evento | { status: string; pauta_id: number }>("/api/eventos/", payload);
+      // Evento público de quem não é ancião vira pauta no Canal dos Anciões.
+      if (!editando && (resp as any).status === "pauta_aberta") {
+        toast.sucesso("Evento público enviado ao Canal dos Anciões para votação.");
+        nav(`/pauta/${(resp as any).pauta_id}`, { replace: true });
+        return;
+      }
+      const ev = resp as Evento;
       // Foto é enviada após salvar (precisa do id do evento).
       if (foto) {
         try {

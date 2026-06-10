@@ -324,11 +324,22 @@ export interface Notificacao {
   criado_em: string;
 }
 
+export interface AtividadeLog {
+  id: number;
+  usuario_detalhe: { nome: string } | null;
+  acao: string;
+  entidade: string;
+  entidade_id: number | null;
+  criado_em: string;
+}
+
 export interface Dashboard {
   eventos_minha_igreja: Evento[];
   eventos_proximos: Evento[];
   pendencias: { eventos: number; membros: number; pautas_abertas: number };
   pautas_aguardando: Pauta[];
+  atividade_recente: AtividadeLog[];
+  pode_ver_auditoria: boolean;
   sou_lideranca: boolean;
 }
 
