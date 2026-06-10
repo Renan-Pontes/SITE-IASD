@@ -22,6 +22,16 @@ interface AuthState {
   lideroIgreja: (igrejaId: number) => boolean;
   souLiderIgreja: (igrejaId: number) => boolean;
   souSecretaria: (igrejaId: number) => boolean;
+  // Configuração pública (modo mono-igreja)
+  multiChurch: boolean;
+  igrejaUnica: IgrejaUnica | null;
+}
+
+interface IgrejaUnica {
+  id: number;
+  nome: string;
+  slug: string;
+  cor_primaria: string;
 }
 
 const Ctx = createContext<AuthState>(null as any);
@@ -33,6 +43,20 @@ export function useAuth() {
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [me, setMe] = useState<Me | null>(null);
   const [carregando, setCarregando] = useState(true);
+  // Configuração pública (modo mono-igreja). Default multi=true até carregar,
+  // para nunca esconder navegação por engano antes da resposta.
+  const [multiChurch, setMultiChurch] = useState(true);
+  const [igrejaUnica, setIgrejaUnica] = useState<IgrejaUnica | null>(null);
+
+  useEffect(() => {
+    api
+      .get<{ multi_church_enabled: boolean; igreja_unica: IgrejaUnica | null }>("/api/config/")
+      .then((c) => {
+        setMultiChurch(c.multi_church_enabled);
+        setIgrejaUnica(c.igreja_unica);
+      })
+      .catch(() => {});
+  }, []);
 
   const carregarMe = useCallback(async () => {
     if (!tokens.access) {
@@ -105,6 +129,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         lideroIgreja,
         souLiderIgreja,
         souSecretaria,
+        multiChurch,
+        igrejaUnica,
       }}
     >
       {children}

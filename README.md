@@ -150,7 +150,15 @@ npm run build                  # typecheck + build de produção
 ```bash
 python manage.py fechar_pautas       # encerra pautas (prazo/quórum) e enquetes de grupo expiradas
 python manage.py purgar_auditoria    # remove auditoria > 90 dias (--dias N)
+python manage.py seed_vila_formosa   # garante a igreja única (modo mono-igreja)
 ```
+
+### Modo igreja única (mono-igreja)
+
+Por padrão o app opera para **uma única igreja** (`MULTI_CHURCH_ENABLED=False`):
+novos cadastros já entram **ativos** na IASD Vila Formosa, e a interface esconde
+a lista/seguir/trocar de igreja (o código continua lá). Para o modo multi-igreja
+completo, defina `MULTI_CHURCH_ENABLED=True`. A config é exposta em `/api/config/`.
 
 ---
 

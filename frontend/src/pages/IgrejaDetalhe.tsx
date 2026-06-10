@@ -15,7 +15,7 @@ export default function IgrejaDetalhe() {
   const { id } = useParams();
   const nav = useNavigate();
   const toast = useToast();
-  const { logado, lideroIgreja, souLiderIgreja, souSecretaria, recarregar, me } = useAuth();
+  const { logado, lideroIgreja, souLiderIgreja, souSecretaria, multiChurch, recarregar, me } = useAuth();
   const [igreja, setIgreja] = useState<Igreja | null>(null);
   const [aba, setAba] = useState<Aba>("agenda");
   const [eventos, setEventos] = useState<Evento[]>([]);
@@ -151,12 +151,12 @@ export default function IgrejaDetalhe() {
                 <ShieldCheck size={14} /> {rotulo.papel(igreja.meu_papel || "membro")}
               </Badge>
             )}
-            {(!igreja.meu_status || igreja.meu_status === "inativo") && (
+            {multiChurch && (!igreja.meu_status || igreja.meu_status === "inativo") && (
               <Botao onClick={entrar} carregando={entrando}>
                 <LogIn size={18} /> Entrar nesta igreja
               </Botao>
             )}
-            {logado && (
+            {logado && multiChurch && (
               <Botao variante={igreja.eu_sigo ? "secondary" : "primary"} onClick={alternarSeguir} carregando={seguindo}>
                 <Star size={18} className={igreja.eu_sigo ? "fill-current" : ""} />
                 {igreja.eu_sigo ? "Seguindo" : "Seguir"}

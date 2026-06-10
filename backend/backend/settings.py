@@ -204,3 +204,15 @@ if not DEBUG:
     SECURE_HSTS_SECONDS = int(os.environ.get("SECURE_HSTS_SECONDS", "0"))
     SECURE_CONTENT_TYPE_NOSNIFF = True
     X_FRAME_OPTIONS = "DENY"
+
+
+# --------------------------------------------------------------------------- #
+# Modo igreja única (mono-igreja)
+# --------------------------------------------------------------------------- #
+# Quando desligado (padrão), o app opera para UMA igreja: novos cadastros já
+# entram ATIVOS nela e a UI esconde lista/seguir/trocar de igreja. Ligue
+# MULTI_CHURCH_ENABLED=True para o modo multi-igreja completo.
+MULTI_CHURCH_ENABLED = env_bool("MULTI_CHURCH_ENABLED", False)
+# Identidade da igreja única (usada para auto-vincular e popular o seed).
+IGREJA_UNICA_SLUG = os.environ.get("IGREJA_UNICA_SLUG", "vila-formosa")
+IGREJA_UNICA_NOME = os.environ.get("IGREJA_UNICA_NOME", "IASD Vila Formosa")

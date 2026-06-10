@@ -2,8 +2,35 @@
 
 import calendar
 import math
+from decimal import Decimal
+
+from django.conf import settings
 
 from .models import AuditLog, Notificacao
+
+
+def igreja_unica():
+    """Retorna (criando se preciso) a igreja única do modo mono-igreja.
+
+    Usada para auto-vincular novos cadastros e como destino fixo da UI quando
+    MULTI_CHURCH_ENABLED é False. Idempotente (get_or_create por slug).
+    """
+    from .models import Igreja
+
+    igreja, _ = Igreja.objects.get_or_create(
+        slug=settings.IGREJA_UNICA_SLUG,
+        defaults={
+            "nome": settings.IGREJA_UNICA_NOME,
+            "descricao": "Igreja Adventista do Sétimo Dia — Vila Formosa, zona leste de São Paulo.",
+            "endereco": "Vila Formosa",
+            "cidade": "São Paulo",
+            "estado": "SP",
+            "latitude": Decimal("-23.5616"),
+            "longitude": Decimal("-46.5447"),
+            "cor_primaria": "#16a34a",
+        },
+    )
+    return igreja
 
 
 def proximo_mensal(dt):

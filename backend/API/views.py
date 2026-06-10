@@ -86,6 +86,28 @@ def health(request):
 
 @api_view(["GET"])
 @permission_classes([AllowAny])
+def config(request):
+    """Configuração pública do app (lida pelo frontend ao iniciar)."""
+    from django.conf import settings as dj_settings
+
+    igreja = None
+    if not dj_settings.MULTI_CHURCH_ENABLED:
+        from .utils import igreja_unica
+
+        ig = igreja_unica()
+        igreja = {
+            "id": ig.id,
+            "nome": ig.nome,
+            "slug": ig.slug,
+            "cor_primaria": ig.cor_primaria,
+        }
+    return Response(
+        {"multi_church_enabled": dj_settings.MULTI_CHURCH_ENABLED, "igreja_unica": igreja}
+    )
+
+
+@api_view(["GET"])
+@permission_classes([AllowAny])
 def search(request):
     """Busca global agrupada (igrejas, grupos, eventos, pessoas)."""
     q = (request.query_params.get("q") or "").strip()
@@ -230,6 +252,21 @@ class RegisterView(APIView):
         serializer.is_valid(raise_exception=True)
         user = serializer.save()
         log_acao(user, "registro", "User", user.id)
+
+        # Modo mono-igreja: novo cadastro já entra ATIVO na igreja única.
+        from django.conf import settings as dj_settings
+
+        if not dj_settings.MULTI_CHURCH_ENABLED:
+            from .utils import igreja_unica
+
+            igreja = igreja_unica()
+            Membro.objects.get_or_create(
+                usuario=user, igreja=igreja,
+                defaults={"papel": PapelIgreja.MEMBRO, "status": StatusVinculo.ATIVO},
+            )
+            user.profile.igreja_principal = igreja
+            user.profile.save(update_fields=["igreja_principal"])
+
         from rest_framework_simplejwt.tokens import RefreshToken
 
         refresh = RefreshToken.for_user(user)

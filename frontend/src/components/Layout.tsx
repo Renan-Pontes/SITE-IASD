@@ -19,14 +19,21 @@ const ITENS = [
 const ITENS_MOBILE = ITENS.filter((i) => i.to !== "/buscar");
 
 function Logo() {
+  const { multiChurch, igrejaUnica } = useAuth();
   return (
     <Link to="/" className="flex items-center gap-2">
       <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-marca-700 font-extrabold text-white">
         ✛
       </div>
-      <span className="text-lg font-extrabold tracking-tight text-marca-800 dark:text-marca-300">
-        IASD <span className="font-medium text-slate-500">Gestão</span>
-      </span>
+      {!multiChurch && igrejaUnica ? (
+        <span className="text-lg font-extrabold tracking-tight text-marca-800 dark:text-marca-300">
+          {igrejaUnica.nome}
+        </span>
+      ) : (
+        <span className="text-lg font-extrabold tracking-tight text-marca-800 dark:text-marca-300">
+          IASD <span className="font-medium text-slate-500">Gestão</span>
+        </span>
+      )}
     </Link>
   );
 }
@@ -96,12 +103,18 @@ function TopBar({ naoLidas }: { naoLidas: number }) {
   );
 }
 
+// Esconde "Igrejas" no modo mono-igreja (não há lista para navegar).
+function filtrarItens<T extends { to: string }>(itens: T[], multiChurch: boolean) {
+  return multiChurch ? itens : itens.filter((i) => i.to !== "/igrejas");
+}
+
 // --- Barra inferior (mobile) ---
 function BottomNav() {
+  const { multiChurch } = useAuth();
   return (
     <nav className="sticky bottom-0 z-30 border-t border-slate-100 bg-white pb-[env(safe-area-inset-bottom)] dark:border-slate-800 lg:hidden">
       <div className="mx-auto flex max-w-3xl items-stretch justify-around">
-        {ITENS_MOBILE.map(({ to, icone: Icone, texto, end }) => (
+        {filtrarItens(ITENS_MOBILE, multiChurch).map(({ to, icone: Icone, texto, end }) => (
           <NavLink
             key={to}
             to={to}
@@ -123,7 +136,7 @@ function BottomNav() {
 
 // --- Barra lateral (desktop ≥ lg) ---
 function Sidebar({ naoLidas }: { naoLidas: number }) {
-  const { me, logado } = useAuth();
+  const { me, logado, multiChurch } = useAuth();
   return (
     <aside className="sticky top-0 hidden h-screen w-64 shrink-0 flex-col border-r border-slate-100 bg-white dark:border-slate-800 lg:flex">
       <div className="p-5">
@@ -137,7 +150,7 @@ function Sidebar({ naoLidas }: { naoLidas: number }) {
         </div>
       )}
       <nav className="flex-1 space-y-1 px-3">
-        {ITENS.map(({ to, icone: Icone, texto, end }) => (
+        {filtrarItens(ITENS, multiChurch).map(({ to, icone: Icone, texto, end }) => (
           <NavLink
             key={to}
             to={to}

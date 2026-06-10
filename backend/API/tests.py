@@ -10,7 +10,7 @@ from datetime import timedelta
 
 from django.contrib.auth import get_user_model
 from django.core.management import call_command
-from django.test import TestCase
+from django.test import TestCase, override_settings
 from django.utils import timezone
 from rest_framework.test import APIClient
 
@@ -918,6 +918,45 @@ class SecretariaTests(TestCase):
         self.assertTrue(r.data["secretaria"])
         membro.refresh_from_db()
         self.assertTrue(membro.secretaria)
+
+
+class MonoIgrejaTests(TestCase):
+    def test_config_mono(self):
+        r = self.client.get("/api/config/")
+        self.assertEqual(r.status_code, 200)
+        self.assertFalse(r.data["multi_church_enabled"])
+        self.assertIsNotNone(r.data["igreja_unica"])
+        self.assertEqual(r.data["igreja_unica"]["slug"], "vila-formosa")
+
+    def test_registro_auto_vincula_ativo(self):
+        c = APIClient()
+        r = c.post(
+            "/api/auth/register/",
+            {"nome": "Novo User", "email": "novo@iasd.app", "password": "segredo123"},
+            format="json",
+        )
+        self.assertEqual(r.status_code, 201, r.content)
+        u = User.objects.get(email="novo@iasd.app")
+        m = Membro.objects.get(usuario=u)
+        self.assertEqual(m.status, StatusVinculo.ATIVO)
+        self.assertEqual(m.igreja.slug, "vila-formosa")
+        u.profile.refresh_from_db()
+        self.assertEqual(u.profile.igreja_principal_id, m.igreja_id)
+
+    @override_settings(MULTI_CHURCH_ENABLED=True)
+    def test_multi_nao_auto_vincula(self):
+        c = APIClient()
+        r = c.post(
+            "/api/auth/register/",
+            {"nome": "Multi User", "email": "multi@iasd.app", "password": "segredo123"},
+            format="json",
+        )
+        self.assertEqual(r.status_code, 201, r.content)
+        u = User.objects.get(email="multi@iasd.app")
+        self.assertFalse(Membro.objects.filter(usuario=u).exists())
+        cfg = c.get("/api/config/")
+        self.assertTrue(cfg.data["multi_church_enabled"])
+        self.assertIsNone(cfg.data["igreja_unica"])
 
 
 class IcalTests(TestCase):

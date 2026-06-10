@@ -8,7 +8,7 @@ import { CampoSenha, FeedbackSenha } from "../components/CampoSenha";
 import { validarSenha } from "../lib/senha";
 
 export default function Cadastro() {
-  const { recarregar } = useAuth();
+  const { recarregar, multiChurch } = useAuth();
   const nav = useNavigate();
   const toast = useToast();
   const [form, setForm] = useState({
@@ -39,8 +39,13 @@ export default function Cadastro() {
         password: form.password,
       });
       await recarregar();
-      toast.sucesso("Conta criada! Agora escolha sua igreja.");
-      nav("/igrejas", { replace: true });
+      if (multiChurch) {
+        toast.sucesso("Conta criada! Agora escolha sua igreja.");
+        nav("/igrejas", { replace: true });
+      } else {
+        toast.sucesso("Conta criada! Bem-vindo(a) à comunidade.");
+        nav("/", { replace: true });
+      }
     } catch (err) {
       toast.erro(err instanceof ApiError ? err.message : "Não foi possível criar a conta.");
     } finally {
