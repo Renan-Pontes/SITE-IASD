@@ -858,6 +858,62 @@ class SalaViewSet(viewsets.ModelViewSet):
         self._checar(instance.igreja)
         instance.delete()
 
+    @action(detail=True, methods=["get"])
+    def disponibilidade(self, request, pk=None):
+        """Conflitos da sala num intervalo + sugestões (próximo horário / salas livres)."""
+        from django.utils.dateparse import parse_datetime
+
+        sala = self.get_object()
+        inicio = parse_datetime(request.query_params.get("inicio") or "")
+        fim = parse_datetime(request.query_params.get("fim") or "")
+        excluir = request.query_params.get("excluir")
+        if not inicio or not fim:
+            return Response({"detail": "Informe inicio e fim."}, status=400)
+        if timezone.is_naive(inicio):
+            inicio = timezone.make_aware(inicio)
+        if timezone.is_naive(fim):
+            fim = timezone.make_aware(fim)
+
+        conf = Evento.objects.filter(
+            sala=sala, status__in=[StatusEvento.PENDENTE, StatusEvento.APROVADO],
+            inicio__lt=fim, fim__gt=inicio,
+        ).select_related("grupo").order_by("inicio")
+        if excluir:
+            conf = conf.exclude(pk=excluir)
+        conflitos = list(conf)
+
+        conflitos_data = [
+            {
+                "evento_id": e.id, "titulo": e.titulo,
+                "inicio": e.inicio.isoformat(), "fim": e.fim.isoformat(),
+                "grupo": e.grupo.nome if e.grupo_id else None,
+            }
+            for e in conflitos
+        ]
+
+        sugestoes_sala = []
+        proximo = None
+        if conflitos:
+            duracao = fim - inicio
+            # Próximo horário livre: começa no fim do último conflito.
+            fim_max = max(e.fim for e in conflitos)
+            proximo = {"inicio": fim_max.isoformat(), "fim": (fim_max + duracao).isoformat()}
+            # Salas alternativas livres no mesmo horário.
+            for outra in Sala.objects.filter(igreja=sala.igreja, ativo=True).exclude(pk=sala.pk):
+                livre = not Evento.objects.filter(
+                    sala=outra, status__in=[StatusEvento.PENDENTE, StatusEvento.APROVADO],
+                    inicio__lt=fim, fim__gt=inicio,
+                ).exists()
+                if livre:
+                    sugestoes_sala.append({"id": outra.id, "nome": outra.nome})
+
+        return Response({
+            "disponivel": not conflitos,
+            "conflitos": conflitos_data,
+            "proximo_horario": proximo,
+            "salas_alternativas": sugestoes_sala,
+        })
+
 
 # --------------------------------------------------------------------------- #
 # Evento

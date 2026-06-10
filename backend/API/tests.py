@@ -211,6 +211,69 @@ class EventoWorkflowTests(TestCase):
         self.assertEqual(Inscricao.objects.filter(usuario=self.membro, evento=ev).count(), 1)
 
 
+class ConflitoSalaTests(TestCase):
+    def setUp(self):
+        self.igreja = Igreja.objects.create(nome="IASD Sala", cidade="SP", estado="SP")
+        self.anciao = cria_user("anciao@iasd.app", "Jose Anciao")
+        Membro.objects.create(usuario=self.anciao, igreja=self.igreja, papel=PapelIgreja.ANCIAO, status=StatusVinculo.ATIVO)
+        self.sala = Sala.objects.create(nome="Salão", igreja=self.igreja)
+        self.outra = Sala.objects.create(nome="Anexo", igreja=self.igreja)
+        self.ini = timezone.now() + timedelta(days=3)
+        self.fim = self.ini + timedelta(hours=2)
+        # Evento já ocupando a sala.
+        Evento.objects.create(
+            titulo="Reservado", igreja=self.igreja, sala=self.sala,
+            inicio=self.ini, fim=self.fim, status=StatusEvento.APROVADO,
+            criado_por=self.anciao,
+        )
+
+    def test_criar_evento_sobreposto_bloqueia(self):
+        c = APIClient(); autentica(c, "anciao@iasd.app")
+        # Sobreposição parcial (começa 1h depois, ainda dentro do intervalo).
+        resp = c.post("/api/eventos/", {
+            "titulo": "Choca", "igreja": self.igreja.id, "sala": self.sala.id,
+            "inicio": (self.ini + timedelta(hours=1)).isoformat(),
+            "fim": (self.fim + timedelta(hours=1)).isoformat(),
+            "visibilidade": VisibilidadeEvento.PUBLICO,
+        }, format="json")
+        self.assertEqual(resp.status_code, 400, resp.content)
+        self.assertIn("sala", resp.data)
+
+    def test_outra_sala_nao_conflita(self):
+        c = APIClient(); autentica(c, "anciao@iasd.app")
+        resp = c.post("/api/eventos/", {
+            "titulo": "Outra", "igreja": self.igreja.id, "sala": self.outra.id,
+            "inicio": self.ini.isoformat(), "fim": self.fim.isoformat(),
+            "visibilidade": VisibilidadeEvento.PUBLICO,
+        }, format="json")
+        self.assertEqual(resp.status_code, 201, resp.content)
+
+    def test_disponibilidade_reporta_conflito_e_sugestao(self):
+        c = APIClient(); autentica(c, "anciao@iasd.app")
+        resp = c.get(
+            f"/api/salas/{self.sala.id}/disponibilidade/",
+            {"inicio": self.ini.isoformat(), "fim": self.fim.isoformat()},
+        )
+        self.assertEqual(resp.status_code, 200, resp.content)
+        self.assertFalse(resp.data["disponivel"])
+        self.assertEqual(len(resp.data["conflitos"]), 1)
+        self.assertIsNotNone(resp.data["proximo_horario"])
+        # A outra sala livre aparece como alternativa.
+        ids = [s["id"] for s in resp.data["salas_alternativas"]]
+        self.assertIn(self.outra.id, ids)
+
+    def test_disponibilidade_livre(self):
+        c = APIClient(); autentica(c, "anciao@iasd.app")
+        livre_ini = self.fim + timedelta(hours=1)
+        livre_fim = livre_ini + timedelta(hours=1)
+        resp = c.get(
+            f"/api/salas/{self.sala.id}/disponibilidade/",
+            {"inicio": livre_ini.isoformat(), "fim": livre_fim.isoformat()},
+        )
+        self.assertTrue(resp.data["disponivel"])
+        self.assertEqual(resp.data["conflitos"], [])
+
+
 class VisibilidadeEventoTests(TestCase):
     def setUp(self):
         self.igreja = Igreja.objects.create(nome="IASD Vis", cidade="SP", estado="SP")

@@ -766,12 +766,33 @@ class Pauta(models.Model):
                     equipamentos=p.get("equipamentos", ""),
                 )
             elif self.tipo == TipoPauta.AGENDAR_EVENTO:
+                ini, fim = parse_datetime(p["inicio"]), parse_datetime(p["fim"])
+                sala_id = p.get("sala")
+                # Checa conflito de sala no momento da aplicação (pode ter sido
+                # tomada entre criar e aprovar a pauta). Se conflitar, não aplica.
+                if sala_id:
+                    conflito = Evento.objects.filter(
+                        sala_id=sala_id,
+                        status__in=[StatusEvento.PENDENTE, StatusEvento.APROVADO],
+                        inicio__lt=fim, fim__gt=ini,
+                    ).exists()
+                    if conflito:
+                        from .utils import notificar
+
+                        notificar(
+                            self.criada_por, "Conflito de sala ao aplicar",
+                            f"“{self.titulo}” foi aprovada, mas a sala já estava reservada nesse horário. "
+                            "Ajuste o horário/sala e reenvie.",
+                            tipo="pauta_conflito", link=f"/pauta/{self.id}",
+                        )
+                        return  # não marca aplicada_em
                 Evento.objects.create(
                     igreja=self.igreja,
                     titulo=p.get("titulo", "Evento"),
                     descricao=p.get("descricao", ""),
-                    inicio=parse_datetime(p["inicio"]),
-                    fim=parse_datetime(p["fim"]),
+                    inicio=ini,
+                    fim=fim,
+                    sala_id=sala_id,
                     visibilidade=p.get("visibilidade", "publico"),
                     status=StatusEvento.APROVADO,
                     criado_por=self.criada_por,

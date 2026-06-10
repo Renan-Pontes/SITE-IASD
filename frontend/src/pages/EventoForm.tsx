@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
-import { ArrowLeft, ImagePlus, X } from "lucide-react";
+import { AlertTriangle, ArrowLeft, CheckCircle2, ImagePlus, X } from "lucide-react";
 import { api, ApiError, uploadArquivo } from "../api/client";
 import { useAuth } from "../auth/AuthContext";
 import { useToast } from "../ui/Toast";
@@ -11,6 +11,23 @@ function paraInputLocal(iso: string) {
   const d = new Date(iso);
   const off = d.getTimezoneOffset();
   return new Date(d.getTime() - off * 60000).toISOString().slice(0, 16);
+}
+
+type Conflito = { evento_id: number; titulo: string; inicio: string; fim: string; grupo: string | null };
+type Disponibilidade = {
+  disponivel: boolean;
+  conflitos: Conflito[];
+  proximo_horario: { inicio: string; fim: string } | null;
+  salas_alternativas: { id: number; nome: string }[];
+};
+
+function horaCurta(iso: string) {
+  return new Date(iso).toLocaleString("pt-BR", {
+    day: "2-digit",
+    month: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
 }
 
 export default function EventoForm() {
@@ -25,6 +42,8 @@ export default function EventoForm() {
   const [salas, setSalas] = useState<Sala[]>([]);
   const [carregando, setCarregando] = useState(editando);
   const [salvando, setSalvando] = useState(false);
+  const [disp, setDisp] = useState<Disponibilidade | null>(null);
+  const [checandoSala, setChecandoSala] = useState(false);
 
   const [form, setForm] = useState({
     titulo: "",
@@ -96,8 +115,37 @@ export default function EventoForm() {
     api.get<Sala[]>(`/api/igrejas/${form.igreja}/salas/`).then(setSalas).catch(() => {});
   }, [form.igreja]);
 
+  // Verifica conflito de horário na sala (com debounce).
+  useEffect(() => {
+    if (!form.sala || !form.inicio || !form.fim) {
+      setDisp(null);
+      return;
+    }
+    const ini = new Date(form.inicio);
+    const fim = new Date(form.fim);
+    if (isNaN(ini.getTime()) || isNaN(fim.getTime()) || fim <= ini) {
+      setDisp(null);
+      return;
+    }
+    setChecandoSala(true);
+    const t = setTimeout(() => {
+      const qs = new URLSearchParams({ inicio: ini.toISOString(), fim: fim.toISOString() });
+      if (editando && id) qs.set("excluir", id);
+      api
+        .get<Disponibilidade>(`/api/salas/${form.sala}/disponibilidade/?${qs.toString()}`)
+        .then(setDisp)
+        .catch(() => setDisp(null))
+        .finally(() => setChecandoSala(false));
+    }, 400);
+    return () => clearTimeout(t);
+  }, [form.sala, form.inicio, form.fim, editando, id]);
+
   const submeter = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (disp && !disp.disponivel) {
+      toast.erro("A sala já está reservada nesse horário. Escolha outro horário ou outra sala.");
+      return;
+    }
     setSalvando(true);
     const payload: any = {
       titulo: form.titulo,
@@ -256,6 +304,66 @@ export default function EventoForm() {
             </select>
           </Campo>
         </div>
+
+        {form.sala && form.inicio && form.fim && (
+          <div aria-live="polite">
+            {checandoSala && !disp && (
+              <p className="text-sm text-slate-400">Verificando disponibilidade da sala…</p>
+            )}
+            {disp && disp.disponivel && (
+              <p className="flex items-center gap-2 rounded-xl bg-marca-50 px-4 py-3 text-sm font-semibold text-marca-700">
+                <CheckCircle2 size={18} /> Sala livre nesse horário.
+              </p>
+            )}
+            {disp && !disp.disponivel && (
+              <div className="space-y-3 rounded-xl border border-rose-200 bg-rose-50 px-4 py-3">
+                <p className="flex items-center gap-2 text-sm font-bold text-rose-700">
+                  <AlertTriangle size={18} /> Sala ocupada nesse horário
+                </p>
+                <ul className="space-y-1 text-sm text-rose-700">
+                  {disp.conflitos.map((c) => (
+                    <li key={c.evento_id}>
+                      • <strong>{c.titulo}</strong> — {horaCurta(c.inicio)} às {horaCurta(c.fim)}
+                      {c.grupo ? ` (${c.grupo})` : ""}
+                    </li>
+                  ))}
+                </ul>
+                {disp.proximo_horario && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setForm((f) => ({
+                        ...f,
+                        inicio: paraInputLocal(disp.proximo_horario!.inicio),
+                        fim: paraInputLocal(disp.proximo_horario!.fim),
+                      }));
+                    }}
+                    className="rounded-lg bg-white px-3 py-1.5 text-sm font-semibold text-marca-700 ring-1 ring-marca-200 hover:bg-marca-50"
+                  >
+                    Usar próximo horário livre ({horaCurta(disp.proximo_horario.inicio)})
+                  </button>
+                )}
+                {disp.salas_alternativas.length > 0 && (
+                  <div className="space-y-1">
+                    <span className="text-xs font-semibold text-rose-600">Salas livres nesse horário:</span>
+                    <div className="flex flex-wrap gap-2">
+                      {disp.salas_alternativas.map((s) => (
+                        <button
+                          key={s.id}
+                          type="button"
+                          onClick={() => setForm((f) => ({ ...f, sala: String(s.id) }))}
+                          className="rounded-lg bg-white px-3 py-1.5 text-sm font-semibold text-marca-700 ring-1 ring-marca-200 hover:bg-marca-50"
+                        >
+                          {s.nome}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        )}
         <div className="grid grid-cols-2 gap-3">
           <Campo label="Visibilidade">
             <select className="input" value={form.visibilidade} onChange={set("visibilidade")}>

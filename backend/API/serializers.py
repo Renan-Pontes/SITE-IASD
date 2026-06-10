@@ -424,10 +424,33 @@ class EventoSerializer(serializers.ModelSerializer):
     def validate(self, attrs):
         inicio = attrs.get("inicio", getattr(self.instance, "inicio", None))
         fim = attrs.get("fim", getattr(self.instance, "fim", None))
+        sala = attrs.get("sala", getattr(self.instance, "sala", None))
         if inicio and fim and fim < inicio:
             raise serializers.ValidationError(
                 {"fim": "O término não pode ser antes do início."}
             )
+        # Conflito de sala: nenhuma sobreposição com eventos pendentes/aprovados.
+        if sala and inicio and fim:
+            from .models import Evento as _Evento, StatusEvento as _SE
+
+            conf = _Evento.objects.filter(
+                sala=sala,
+                status__in=[_SE.PENDENTE, _SE.APROVADO],
+                inicio__lt=fim,
+                fim__gt=inicio,
+            )
+            if self.instance:
+                conf = conf.exclude(pk=self.instance.pk)
+            ocupado = conf.select_related("grupo").first()
+            if ocupado:
+                from django.utils import timezone as _tz
+
+                hi = _tz.localtime(ocupado.inicio).strftime("%d/%m %H:%M")
+                hf = _tz.localtime(ocupado.fim).strftime("%H:%M")
+                por = f" por {ocupado.grupo.nome}" if ocupado.grupo_id else ""
+                raise serializers.ValidationError(
+                    {"sala": f"Sala já reservada das {hi} às {hf}{por}. Escolha outro horário ou outra sala."}
+                )
         return attrs
 
     def get_cor_grupo(self, obj):
