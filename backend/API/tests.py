@@ -16,6 +16,8 @@ from rest_framework.test import APIClient
 
 from API.models import (
     CargoGrupo,
+    EnqueteGrupo,
+    EnqueteVoto,
     Evento,
     Grupo,
     GrupoMembro,
@@ -675,6 +677,106 @@ class GrupoChatTests(TestCase):
         self.assertEqual(resp.status_code, 200)
         resp = client.post(f"/api/grupos/{self.grupo.id}/mensagens/", {"conteudo": "Olá grupo!"}, format="json")
         self.assertEqual(resp.status_code, 201, resp.content)
+
+
+class EnqueteGrupoTests(TestCase):
+    def setUp(self):
+        self.igreja = Igreja.objects.create(nome="IASD Enq", cidade="SP", estado="SP")
+        self.lider = cria_user("lider@iasd.app", "Lidia Lider")
+        Membro.objects.create(usuario=self.lider, igreja=self.igreja, papel=PapelIgreja.MEMBRO, status=StatusVinculo.ATIVO)
+        self.membro = cria_user("membro@iasd.app", "Maria Membro")
+        Membro.objects.create(usuario=self.membro, igreja=self.igreja, papel=PapelIgreja.MEMBRO, status=StatusVinculo.ATIVO)
+        self.fora = cria_user("fora@iasd.app", "Ze Fora")
+        self.grupo = Grupo.objects.create(nome="Jovens", igreja=self.igreja)
+        GrupoMembro.objects.create(usuario=self.lider, grupo=self.grupo, cargo=CargoGrupo.DIRETOR, status=StatusVinculo.ATIVO)
+        GrupoMembro.objects.create(usuario=self.membro, grupo=self.grupo, cargo=CargoGrupo.MEMBRO, status=StatusVinculo.ATIVO)
+
+    def _criar(self, cliente, **extra):
+        payload = {"grupo": self.grupo.id, "pergunta": "Qual dia?", "opcoes": ["Sábado", "Domingo"]}
+        payload.update(extra)
+        return cliente.post("/api/enquetes/", payload, format="json")
+
+    def test_membro_cria_enquete_aparece_no_chat(self):
+        c = APIClient(); autentica(c, "membro@iasd.app")
+        resp = self._criar(c)
+        self.assertEqual(resp.status_code, 201, resp.content)
+        # Devolve a mensagem com a enquete embutida.
+        self.assertIsNotNone(resp.data["enquete"])
+        self.assertEqual(resp.data["enquete_detalhe"]["pergunta"], "Qual dia?")
+        self.assertEqual(len(resp.data["enquete_detalhe"]["opcoes"]), 2)
+        # Aparece no chat do grupo.
+        chat = c.get(f"/api/grupos/{self.grupo.id}/mensagens/")
+        self.assertTrue(any(m.get("enquete") for m in chat.data))
+
+    def test_nao_membro_nao_cria(self):
+        c = APIClient(); autentica(c, "fora@iasd.app")
+        resp = self._criar(c)
+        self.assertEqual(resp.status_code, 403)
+
+    def test_menos_de_duas_opcoes_falha(self):
+        c = APIClient(); autentica(c, "membro@iasd.app")
+        resp = self._criar(c, opcoes=["Só uma"])
+        self.assertEqual(resp.status_code, 400)
+
+    def test_voto_unico_substitui(self):
+        c = APIClient(); autentica(c, "membro@iasd.app")
+        enq_id = self._criar(c).data["enquete"]
+        opcoes = EnqueteGrupo.objects.get(pk=enq_id).opcoes.all()
+        o1, o2 = opcoes[0], opcoes[1]
+        c.post(f"/api/enquetes/{enq_id}/votar/", {"opcao": o1.id}, format="json")
+        r = c.post(f"/api/enquetes/{enq_id}/votar/", {"opcao": o2.id}, format="json")
+        self.assertEqual(r.status_code, 200, r.content)
+        # Só um voto no total (trocou de opção).
+        self.assertEqual(EnqueteVoto.objects.filter(opcao__enquete_id=enq_id, usuario=self.membro).count(), 1)
+        self.assertEqual(r.data["meu_voto"], [o2.id])
+
+    def test_voto_unico_recusa_multiplas(self):
+        c = APIClient(); autentica(c, "membro@iasd.app")
+        enq_id = self._criar(c).data["enquete"]
+        ids = list(EnqueteGrupo.objects.get(pk=enq_id).opcoes.values_list("id", flat=True))
+        r = c.post(f"/api/enquetes/{enq_id}/votar/", {"opcoes": ids}, format="json")
+        self.assertEqual(r.status_code, 400)
+
+    def test_multipla_escolha_aceita_varias(self):
+        c = APIClient(); autentica(c, "membro@iasd.app")
+        enq_id = self._criar(c, multipla_escolha=True).data["enquete"]
+        ids = list(EnqueteGrupo.objects.get(pk=enq_id).opcoes.values_list("id", flat=True))
+        r = c.post(f"/api/enquetes/{enq_id}/votar/", {"opcoes": ids}, format="json")
+        self.assertEqual(r.status_code, 200, r.content)
+        self.assertEqual(sorted(r.data["meu_voto"]), sorted(ids))
+
+    def test_anonima_oculta_votantes(self):
+        c = APIClient(); autentica(c, "membro@iasd.app")
+        enq_id = self._criar(c, anonima=True).data["enquete"]
+        o1 = EnqueteGrupo.objects.get(pk=enq_id).opcoes.first()
+        c.post(f"/api/enquetes/{enq_id}/votar/", {"opcao": o1.id}, format="json")
+        det = c.get(f"/api/enquetes/{enq_id}/")
+        opc = det.data["opcoes"][0]
+        self.assertEqual(opc["votos"], 1)        # contagem aparece
+        self.assertNotIn("votantes", opc)        # mas não quem votou
+
+    def test_encerrar_bloqueia_voto(self):
+        autor = APIClient(); autentica(autor, "membro@iasd.app")
+        enq_id = self._criar(autor).data["enquete"]
+        # Quem não é autor nem líder não encerra.
+        outro = APIClient(); autentica(outro, "fora@iasd.app")
+        self.assertEqual(outro.post(f"/api/enquetes/{enq_id}/encerrar/").status_code, 403)
+        # O líder encerra.
+        lid = APIClient(); autentica(lid, "lider@iasd.app")
+        self.assertEqual(lid.post(f"/api/enquetes/{enq_id}/encerrar/").status_code, 200)
+        o1 = EnqueteGrupo.objects.get(pk=enq_id).opcoes.first()
+        r = autor.post(f"/api/enquetes/{enq_id}/votar/", {"opcao": o1.id}, format="json")
+        self.assertEqual(r.status_code, 400)
+
+    def test_prazo_expirado_encerra(self):
+        c = APIClient(); autentica(c, "membro@iasd.app")
+        enq_id = self._criar(c).data["enquete"]
+        EnqueteGrupo.objects.filter(pk=enq_id).update(prazo=timezone.now() - timedelta(minutes=1))
+        det = c.get(f"/api/enquetes/{enq_id}/")
+        self.assertTrue(det.data["encerrada"])
+        o1 = EnqueteGrupo.objects.get(pk=enq_id).opcoes.first()
+        r = c.post(f"/api/enquetes/{enq_id}/votar/", {"opcao": o1.id}, format="json")
+        self.assertEqual(r.status_code, 400)
 
 
 class IcalTests(TestCase):

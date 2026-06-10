@@ -22,6 +22,9 @@ from rest_framework.views import APIView
 from . import roles
 from .models import (
     CargoGrupo,
+    EnqueteGrupo,
+    EnqueteOpcao,
+    EnqueteVoto,
     Evento,
     Grupo,
     GrupoMembro,
@@ -48,6 +51,7 @@ from .models import (
 from .permissions import IsSuperAdmin
 from .serializers import (
     AuditLogSerializer,
+    EnqueteGrupoSerializer,
     PautaAnexoSerializer,
     PautaComentarioSerializer,
     EventoSerializer,
@@ -726,8 +730,9 @@ class GrupoViewSet(viewsets.ModelViewSet):
                 status=status.HTTP_201_CREATED,
             )
         qs = Mensagem.objects.filter(grupo=grupo).select_related(
-            "autor", "autor__profile"
-        )
+            "autor", "autor__profile", "enquete", "enquete__criada_por",
+            "enquete__criada_por__profile",
+        ).prefetch_related("enquete__opcoes__votos__usuario__profile")
         depois = request.query_params.get("depois_de")
         if depois:
             qs = qs.filter(id__gt=depois)
@@ -801,6 +806,123 @@ class GrupoMembroViewSet(viewsets.ModelViewSet):
         gm.save(update_fields=["cargo", "status"])
         log_acao(request.user, "definir_cargo", "GrupoMembro", gm.id, {"cargo": cargo})
         return Response(GrupoMembroSerializer(gm, context={"request": request}).data)
+
+
+# --------------------------------------------------------------------------- #
+# Enquete do chat de grupo (informal — qualquer membro cria, todos votam)
+# --------------------------------------------------------------------------- #
+class EnqueteGrupoViewSet(viewsets.ModelViewSet):
+    serializer_class = EnqueteGrupoSerializer
+    permission_classes = [IsAuthenticated]
+    http_method_names = ["get", "post"]
+
+    def get_queryset(self):
+        qs = EnqueteGrupo.objects.select_related(
+            "grupo", "criada_por", "criada_por__profile"
+        ).prefetch_related("opcoes__votos__usuario__profile")
+        grupo = self.request.query_params.get("grupo")
+        if grupo:
+            qs = qs.filter(grupo_id=grupo)
+        return qs
+
+    def _membro(self, grupo):
+        return roles.eh_membro_grupo(self.request.user, grupo) or roles.eh_lideranca_grupo(
+            self.request.user, grupo
+        )
+
+    def create(self, request, *args, **kwargs):
+        from django.db import transaction
+        from django.shortcuts import get_object_or_404
+        from django.utils.dateparse import parse_datetime
+
+        grupo = get_object_or_404(Grupo, pk=request.data.get("grupo"))
+        if not self._membro(grupo):
+            return Response({"detail": "Só membros do grupo criam enquetes."}, status=403)
+
+        pergunta = (request.data.get("pergunta") or "").strip()
+        opcoes = [
+            (o or "").strip()
+            for o in (request.data.get("opcoes") or [])
+            if (o or "").strip()
+        ]
+        if not pergunta:
+            return Response({"pergunta": "Informe a pergunta."}, status=400)
+        if len(opcoes) < 2:
+            return Response({"opcoes": "Inclua ao menos duas opções."}, status=400)
+        if len(opcoes) > 10:
+            return Response({"opcoes": "No máximo 10 opções."}, status=400)
+
+        prazo = None
+        if request.data.get("prazo"):
+            prazo = parse_datetime(request.data["prazo"])
+            if prazo and timezone.is_naive(prazo):
+                prazo = timezone.make_aware(prazo)
+
+        with transaction.atomic():
+            enquete = EnqueteGrupo.objects.create(
+                grupo=grupo,
+                criada_por=request.user,
+                pergunta=pergunta,
+                multipla_escolha=bool(request.data.get("multipla_escolha")),
+                anonima=bool(request.data.get("anonima")),
+                prazo=prazo,
+            )
+            EnqueteOpcao.objects.bulk_create(
+                [EnqueteOpcao(enquete=enquete, texto=t, ordem=i) for i, t in enumerate(opcoes)]
+            )
+            msg = Mensagem.objects.create(grupo=grupo, autor=request.user, enquete=enquete)
+
+        log_acao(request.user, "criar_enquete", "EnqueteGrupo", enquete.id)
+        # Devolve a mensagem (com a enquete embutida) para o chat exibir de imediato.
+        return Response(
+            MensagemSerializer(msg, context={"request": request}).data,
+            status=status.HTTP_201_CREATED,
+        )
+
+    @action(detail=True, methods=["post"])
+    def votar(self, request, pk=None):
+        enquete = self.get_object()
+        if not self._membro(enquete.grupo):
+            return Response({"detail": "Só membros do grupo votam."}, status=403)
+        enquete.fechar_se_expirada()
+        if enquete.esta_fechada:
+            return Response({"detail": "Esta enquete está encerrada."}, status=400)
+
+        ids = request.data.get("opcoes")
+        if ids is None and request.data.get("opcao") is not None:
+            ids = [request.data.get("opcao")]
+        try:
+            ids = [int(i) for i in (ids or [])]
+        except (TypeError, ValueError):
+            return Response({"opcoes": "Opções inválidas."}, status=400)
+
+        validas = set(enquete.opcoes.values_list("id", flat=True))
+        ids = [i for i in ids if i in validas]
+        if not enquete.multipla_escolha and len(ids) > 1:
+            return Response({"opcoes": "Escolha apenas uma opção."}, status=400)
+
+        # Substitui os votos do usuário nesta enquete (permite trocar / desfazer).
+        EnqueteVoto.objects.filter(opcao__enquete=enquete, usuario=request.user).delete()
+        EnqueteVoto.objects.bulk_create(
+            [EnqueteVoto(opcao_id=i, usuario=request.user) for i in ids]
+        )
+        enquete.refresh_from_db()
+        return Response(EnqueteGrupoSerializer(enquete, context={"request": request}).data)
+
+    @action(detail=True, methods=["post"])
+    def encerrar(self, request, pk=None):
+        enquete = self.get_object()
+        pode = enquete.criada_por_id == request.user.id or roles.eh_lideranca_grupo(
+            request.user, enquete.grupo
+        )
+        if not pode:
+            return Response(
+                {"detail": "Só quem criou ou a liderança do grupo encerra a enquete."},
+                status=403,
+            )
+        enquete.encerrar()
+        log_acao(request.user, "encerrar_enquete", "EnqueteGrupo", enquete.id)
+        return Response(EnqueteGrupoSerializer(enquete, context={"request": request}).data)
 
 
 # --------------------------------------------------------------------------- #

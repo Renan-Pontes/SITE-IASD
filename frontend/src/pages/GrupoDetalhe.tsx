@@ -1,11 +1,11 @@
 import { useEffect, useRef, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
-import { ArrowLeft, Send, LogIn, Check, X, Plus, Camera } from "lucide-react";
+import { ArrowLeft, Send, LogIn, Check, X, Plus, Camera, BarChart3, Clock, Lock } from "lucide-react";
 import { UploadFoto } from "../components/UploadFoto";
 import { api } from "../api/client";
 import { useAuth } from "../auth/AuthContext";
 import { useToast } from "../ui/Toast";
-import type { Evento, Grupo, GrupoMembro, Mensagem, Paginated } from "../lib/types";
+import type { EnqueteGrupo, Evento, Grupo, GrupoMembro, Mensagem, Paginated } from "../lib/types";
 import { Botao, Card, Carregando, Badge, Avatar, Vazio, SkeletonLista } from "../ui/components";
 import { EventoCard } from "../components/EventoCard";
 import { RejeitarModal } from "../components/RejeitarModal";
@@ -119,7 +119,9 @@ export default function GrupoDetalhe() {
         ))}
       </div>
 
-      {aba === "chat" && <Chat grupoId={Number(id)} podeVer={!!souMembro || !!souLider} />}
+      {aba === "chat" && (
+        <Chat grupoId={Number(id)} podeVer={!!souMembro || !!souLider} souLider={!!souLider} />
+      )}
       {aba === "eventos" && <EventosGrupo grupoId={Number(id)} />}
       {aba === "membros" && (
         <Membros grupoId={Number(id)} souLider={!!souLider} aoMudar={recarregarGrupo} />
@@ -128,14 +130,31 @@ export default function GrupoDetalhe() {
   );
 }
 
-function Chat({ grupoId, podeVer }: { grupoId: number; podeVer: boolean }) {
+function Chat({
+  grupoId,
+  podeVer,
+  souLider,
+}: {
+  grupoId: number;
+  podeVer: boolean;
+  souLider: boolean;
+}) {
   const { me } = useAuth();
   const toast = useToast();
   const [mensagens, setMensagens] = useState<Mensagem[]>([]);
   const [texto, setTexto] = useState("");
   const [carregando, setCarregando] = useState(true);
+  const [criandoEnquete, setCriandoEnquete] = useState(false);
   const fimRef = useRef<HTMLDivElement>(null);
   const ultimoId = useRef(0);
+
+  // Substitui a enquete embutida numa mensagem (após votar / encerrar).
+  const atualizarEnquete = (enq: EnqueteGrupo) =>
+    setMensagens((atuais) =>
+      atuais.map((m) =>
+        m.enquete === enq.id ? { ...m, enquete_detalhe: enq } : m,
+      ),
+    );
 
   // Mescla mensagens novas evitando duplicatas, mantendo ordem por id.
   const mesclar = (novas: Mensagem[]) => {
@@ -222,6 +241,17 @@ function Chat({ grupoId, podeVer }: { grupoId: number; podeVer: boolean }) {
           </p>
         )}
         {mensagens.map((m) => {
+          if (m.enquete_detalhe) {
+            return (
+              <EnquetePoll
+                key={m.id}
+                enquete={m.enquete_detalhe}
+                souLider={souLider}
+                meuId={me?.profile.id}
+                aoMudar={atualizarEnquete}
+              />
+            );
+          }
           const meu = m.autor === me?.profile.id;
           return (
             <div key={m.id} className={`flex gap-2 ${meu ? "flex-row-reverse" : ""}`}>
@@ -249,6 +279,15 @@ function Chat({ grupoId, podeVer }: { grupoId: number; podeVer: boolean }) {
         <div ref={fimRef} />
       </div>
       <form onSubmit={enviar} className="mt-2 flex gap-2">
+        <button
+          type="button"
+          onClick={() => setCriandoEnquete(true)}
+          className="rounded-xl bg-slate-100 px-3 text-slate-500 hover:bg-slate-200"
+          aria-label="Criar enquete"
+          title="Criar enquete"
+        >
+          <BarChart3 size={20} />
+        </button>
         <input
           className="input flex-1"
           placeholder="Escreva uma mensagem..."
@@ -259,6 +298,267 @@ function Chat({ grupoId, podeVer }: { grupoId: number; podeVer: boolean }) {
           <Send size={20} />
         </button>
       </form>
+
+      {criandoEnquete && (
+        <CriarEnqueteModal
+          grupoId={grupoId}
+          aoFechar={() => setCriandoEnquete(false)}
+          aoCriar={(msg) => {
+            mesclar([msg]);
+            setCriandoEnquete(false);
+          }}
+        />
+      )}
+    </div>
+  );
+}
+
+function EnquetePoll({
+  enquete,
+  souLider,
+  meuId,
+  aoMudar,
+}: {
+  enquete: EnqueteGrupo;
+  souLider: boolean;
+  meuId?: number;
+  aoMudar: (e: EnqueteGrupo) => void;
+}) {
+  const toast = useToast();
+  const fechada = enquete.encerrada;
+  const souAutor = enquete.criada_por === meuId;
+
+  // Atualiza os resultados periodicamente enquanto a enquete está aberta.
+  useEffect(() => {
+    if (fechada) return;
+    const t = setInterval(() => {
+      if (document.hidden) return;
+      api.get<EnqueteGrupo>(`/api/enquetes/${enquete.id}/`).then(aoMudar).catch(() => {});
+    }, 5000);
+    return () => clearInterval(t);
+  }, [enquete.id, fechada]);
+
+  const votar = async (opcaoId: number) => {
+    if (fechada) return;
+    let proximo: number[];
+    if (enquete.multipla_escolha) {
+      proximo = enquete.meu_voto.includes(opcaoId)
+        ? enquete.meu_voto.filter((i) => i !== opcaoId)
+        : [...enquete.meu_voto, opcaoId];
+    } else {
+      proximo = enquete.meu_voto.includes(opcaoId) ? [] : [opcaoId];
+    }
+    try {
+      const atualizada = await api.post<EnqueteGrupo>(`/api/enquetes/${enquete.id}/votar/`, {
+        opcoes: proximo,
+      });
+      aoMudar(atualizada);
+    } catch {
+      toast.erro("Não foi possível registrar o voto.");
+    }
+  };
+
+  const encerrar = async () => {
+    try {
+      const atualizada = await api.post<EnqueteGrupo>(`/api/enquetes/${enquete.id}/encerrar/`);
+      aoMudar(atualizada);
+      toast.info("Enquete encerrada.");
+    } catch {
+      toast.erro("Não foi possível encerrar.");
+    }
+  };
+
+  const maxVotos = Math.max(1, ...enquete.opcoes.map((o) => o.votos));
+
+  return (
+    <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+      <div className="mb-1 flex items-center gap-2 text-xs text-slate-400">
+        <BarChart3 size={14} />
+        <span>
+          Enquete de {enquete.criada_por_detalhe?.nome}
+          {enquete.anonima ? " · anônima" : ""}
+          {enquete.multipla_escolha ? " · múltipla escolha" : ""}
+        </span>
+      </div>
+      <p className="font-bold text-slate-800">{enquete.pergunta}</p>
+
+      <div className="mt-3 space-y-2">
+        {enquete.opcoes.map((o) => {
+          const pct = enquete.total_votos ? Math.round((o.votos / enquete.total_votos) * 100) : 0;
+          const escolhida = enquete.meu_voto.includes(o.id);
+          const vencedora = fechada && o.votos === maxVotos && o.votos > 0;
+          return (
+            <button
+              key={o.id}
+              type="button"
+              onClick={() => votar(o.id)}
+              disabled={fechada}
+              className={`relative block w-full overflow-hidden rounded-xl border px-3 py-2 text-left text-sm transition ${
+                escolhida ? "border-marca-500 bg-marca-50" : "border-slate-200 bg-white"
+              } ${fechada ? "cursor-default" : "hover:border-marca-300"}`}
+            >
+              <span
+                className={`absolute inset-y-0 left-0 ${vencedora ? "bg-marca-200/70" : "bg-slate-100"}`}
+                style={{ width: `${pct}%` }}
+              />
+              <span className="relative flex items-center justify-between gap-2">
+                <span className="flex items-center gap-2 font-medium text-slate-700">
+                  {escolhida && <Check size={15} className="text-marca-600" />}
+                  {o.texto}
+                </span>
+                <span className="text-xs font-semibold text-slate-500">
+                  {o.votos} · {pct}%
+                </span>
+              </span>
+            </button>
+          );
+        })}
+      </div>
+
+      <div className="mt-3 flex items-center justify-between text-xs text-slate-400">
+        <span>
+          {enquete.total_votos} {enquete.total_votos === 1 ? "voto" : "votos"}
+          {fechada ? (
+            <span className="ml-1 inline-flex items-center gap-1 text-rose-500">
+              <Lock size={12} /> encerrada
+            </span>
+          ) : enquete.prazo ? (
+            <span className="ml-1 inline-flex items-center gap-1">
+              <Clock size={12} /> até {formatDataCurta(enquete.prazo)} {formatHora(enquete.prazo)}
+            </span>
+          ) : null}
+        </span>
+        {!fechada && (souAutor || souLider) && (
+          <button onClick={encerrar} className="font-semibold text-rose-500 hover:underline">
+            Encerrar
+          </button>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function CriarEnqueteModal({
+  grupoId,
+  aoFechar,
+  aoCriar,
+}: {
+  grupoId: number;
+  aoFechar: () => void;
+  aoCriar: (m: Mensagem) => void;
+}) {
+  const toast = useToast();
+  const [pergunta, setPergunta] = useState("");
+  const [opcoes, setOpcoes] = useState(["", ""]);
+  const [multipla, setMultipla] = useState(false);
+  const [anonima, setAnonima] = useState(false);
+  const [prazo, setPrazo] = useState("");
+  const [salvando, setSalvando] = useState(false);
+
+  const mudarOpcao = (i: number, v: string) =>
+    setOpcoes((arr) => arr.map((o, j) => (j === i ? v : o)));
+  const addOpcao = () => setOpcoes((arr) => (arr.length >= 10 ? arr : [...arr, ""]));
+  const removerOpcao = (i: number) =>
+    setOpcoes((arr) => (arr.length <= 2 ? arr : arr.filter((_, j) => j !== i)));
+
+  const criar = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const limpas = opcoes.map((o) => o.trim()).filter(Boolean);
+    if (!pergunta.trim()) return toast.erro("Escreva a pergunta.");
+    if (limpas.length < 2) return toast.erro("Inclua ao menos duas opções.");
+    setSalvando(true);
+    try {
+      const msg = await api.post<Mensagem>("/api/enquetes/", {
+        grupo: grupoId,
+        pergunta: pergunta.trim(),
+        opcoes: limpas,
+        multipla_escolha: multipla,
+        anonima,
+        prazo: prazo ? new Date(prazo).toISOString() : null,
+      });
+      aoCriar(msg);
+    } catch {
+      toast.erro("Não foi possível criar a enquete.");
+    } finally {
+      setSalvando(false);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/40 p-0 sm:items-center sm:p-4">
+      <div className="max-h-[90vh] w-full max-w-md overflow-y-auto rounded-t-2xl bg-white p-5 sm:rounded-2xl">
+        <div className="mb-3 flex items-center justify-between">
+          <h2 className="flex items-center gap-2 text-lg font-bold text-slate-800">
+            <BarChart3 size={20} /> Nova enquete
+          </h2>
+          <button onClick={aoFechar} aria-label="Fechar" className="text-slate-400">
+            <X size={22} />
+          </button>
+        </div>
+
+        <form onSubmit={criar} className="space-y-3">
+          <input
+            className="input"
+            placeholder="Pergunta (ex.: Qual dia para o piquenique?)"
+            value={pergunta}
+            onChange={(e) => setPergunta(e.target.value)}
+            autoFocus
+          />
+          <div className="space-y-2">
+            {opcoes.map((o, i) => (
+              <div key={i} className="flex gap-2">
+                <input
+                  className="input flex-1"
+                  placeholder={`Opção ${i + 1}`}
+                  value={o}
+                  onChange={(e) => mudarOpcao(i, e.target.value)}
+                />
+                {opcoes.length > 2 && (
+                  <button
+                    type="button"
+                    onClick={() => removerOpcao(i)}
+                    className="rounded-lg bg-slate-100 px-2 text-slate-400"
+                    aria-label="Remover opção"
+                  >
+                    <X size={18} />
+                  </button>
+                )}
+              </div>
+            ))}
+            {opcoes.length < 10 && (
+              <button
+                type="button"
+                onClick={addOpcao}
+                className="flex items-center gap-1 text-sm font-semibold text-marca-700"
+              >
+                <Plus size={16} /> Adicionar opção
+              </button>
+            )}
+          </div>
+
+          <label className="flex items-center gap-2 text-sm text-slate-600">
+            <input type="checkbox" checked={multipla} onChange={(e) => setMultipla(e.target.checked)} />
+            Permitir múltiplas escolhas
+          </label>
+          <label className="flex items-center gap-2 text-sm text-slate-600">
+            <input type="checkbox" checked={anonima} onChange={(e) => setAnonima(e.target.checked)} />
+            Anônima (não mostra quem votou)
+          </label>
+          <div>
+            <span className="label">Prazo (opcional)</span>
+            <input
+              type="datetime-local"
+              className="input"
+              value={prazo}
+              onChange={(e) => setPrazo(e.target.value)}
+            />
+          </div>
+
+          <Botao type="submit" full carregando={salvando}>
+            Publicar enquete
+          </Botao>
+        </form>
+      </div>
     </div>
   );
 }

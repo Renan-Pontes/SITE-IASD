@@ -4,6 +4,8 @@ from django.contrib import admin
 
 from .models import (
     AuditLog,
+    EnqueteGrupo,
+    EnqueteOpcao,
     Evento,
     Grupo,
     GrupoMembro,
@@ -108,6 +110,19 @@ class VotoAdmin(admin.ModelAdmin):
 class MensagemAdmin(admin.ModelAdmin):
     list_display = ["grupo", "autor", "criado_em"]
     search_fields = ["conteudo"]
+
+
+class EnqueteOpcaoInline(admin.TabularInline):
+    model = EnqueteOpcao
+    extra = 0
+
+
+@admin.register(EnqueteGrupo)
+class EnqueteGrupoAdmin(admin.ModelAdmin):
+    list_display = ["pergunta", "grupo", "criada_por", "encerrada", "prazo", "criado_em"]
+    list_filter = ["encerrada", "multipla_escolha", "anonima"]
+    search_fields = ["pergunta"]
+    inlines = [EnqueteOpcaoInline]
 
 
 @admin.register(Notificacao)

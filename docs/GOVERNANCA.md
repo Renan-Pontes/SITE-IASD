@@ -86,6 +86,23 @@ dúvidas e anexar documentos **antes/durante** o voto:
 - Atualização **manual** (botão "Atualizar") — sem WebSocket. Novo comentário
   notifica os anciões e o proponente.
 
+## Enquetes de grupo (≠ pautas)
+
+O chat de cada grupo tem **enquetes informais** — não confundir com as pautas de
+governança dos anciões:
+
+| | Enquete de grupo | Pauta (Canal dos Anciões) |
+|---|---|---|
+| Quem cria | Qualquer **membro ativo** do grupo | Liderança / proponente |
+| Quem vota | **Todos** os membros do grupo | Apenas anciões |
+| Resultado | **Barras visíveis sempre** durante a votação | Oculto se anônima e aberta |
+| `anônima` | Esconde só **quem** votou (contagem aparece) | Esconde contagem e autor |
+| Efeito | Nenhum (consulta de opinião) | Se aprovada, **aplica** mudança |
+| Encerramento | Autor/líder do grupo, ou por **prazo** | Método declarado + quórum/prazo |
+
+Suporta **múltipla escolha** e **prazo** (fechamento automático via
+`fechar_pautas`). Aparecem como **card** no fluxo do chat.
+
 ## Exceção (bootstrapping)
 
 `super_admin` pode criar grupo/sala **direto** (sem votação) com `?direto=1` — usado

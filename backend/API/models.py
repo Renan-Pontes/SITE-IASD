@@ -892,8 +892,13 @@ class Mensagem(models.Model):
     autor = models.ForeignKey(
         settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="mensagens"
     )
-    conteudo = models.TextField()
+    conteudo = models.TextField(blank=True)
     anexo = models.FileField(upload_to="chat/", null=True, blank=True)
+    # Mensagem que carrega uma enquete (renderizada como card no chat).
+    enquete = models.OneToOneField(
+        "EnqueteGrupo", on_delete=models.CASCADE, null=True, blank=True,
+        related_name="mensagem",
+    )
     criado_em = models.DateTimeField(auto_now_add=True)
 
     class Meta:
@@ -904,6 +909,99 @@ class Mensagem(models.Model):
 
     def __str__(self):
         return f"{self.autor} em {self.grupo}: {self.conteudo[:30]}"
+
+
+# --------------------------------------------------------------------------- #
+# Enquetes do chat de grupo (informais — ≠ pautas de governança dos anciões)
+# --------------------------------------------------------------------------- #
+class EnqueteGrupo(models.Model):
+    """Enquete leve dentro do chat de um grupo.
+
+    Diferente das `Pauta` (governança dos anciões): qualquer membro ativo do
+    grupo cria, todos os membros votam, e o resultado (barras) é sempre visível
+    durante a votação. O `anonima` apenas oculta *quem* votou em quê.
+    """
+
+    grupo = models.ForeignKey(
+        Grupo, on_delete=models.CASCADE, related_name="enquetes"
+    )
+    criada_por = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True,
+        related_name="enquetes_criadas",
+    )
+    pergunta = models.CharField(max_length=255)
+    multipla_escolha = models.BooleanField(default=False)
+    anonima = models.BooleanField(default=False)
+    prazo = models.DateTimeField(null=True, blank=True)
+    encerrada = models.BooleanField(default=False)
+    encerrada_em = models.DateTimeField(null=True, blank=True)
+    criado_em = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        verbose_name = "Enquete de grupo"
+        verbose_name_plural = "Enquetes de grupo"
+        ordering = ["-criado_em"]
+        indexes = [models.Index(fields=["grupo", "criado_em"])]
+
+    @property
+    def expirada(self):
+        return bool(self.prazo and timezone.now() >= self.prazo)
+
+    @property
+    def esta_fechada(self):
+        return self.encerrada or self.expirada
+
+    def encerrar(self):
+        if not self.encerrada:
+            self.encerrada = True
+            self.encerrada_em = timezone.now()
+            self.save(update_fields=["encerrada", "encerrada_em"])
+
+    def fechar_se_expirada(self):
+        """Marca como encerrada se o prazo passou. Retorna True se fechou agora."""
+        if not self.encerrada and self.expirada:
+            self.encerrar()
+            return True
+        return False
+
+    def __str__(self):
+        return f"Enquete: {self.pergunta[:40]} ({self.grupo})"
+
+
+class EnqueteOpcao(models.Model):
+    enquete = models.ForeignKey(
+        EnqueteGrupo, on_delete=models.CASCADE, related_name="opcoes"
+    )
+    texto = models.CharField(max_length=200)
+    ordem = models.PositiveSmallIntegerField(default=0)
+
+    class Meta:
+        verbose_name = "Opção de enquete"
+        verbose_name_plural = "Opções de enquete"
+        ordering = ["ordem", "id"]
+
+    def __str__(self):
+        return self.texto
+
+
+class EnqueteVoto(models.Model):
+    opcao = models.ForeignKey(
+        EnqueteOpcao, on_delete=models.CASCADE, related_name="votos"
+    )
+    usuario = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.CASCADE,
+        related_name="votos_enquete",
+    )
+    criado_em = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        verbose_name = "Voto de enquete"
+        verbose_name_plural = "Votos de enquete"
+        constraints = [
+            models.UniqueConstraint(
+                fields=["opcao", "usuario"], name="uniq_voto_enquete_opcao_usuario"
+            )
+        ]
 
 
 # --------------------------------------------------------------------------- #

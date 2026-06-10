@@ -8,6 +8,7 @@ from rest_framework import serializers
 from . import roles
 from .models import (
     AuditLog,
+    EnqueteGrupo,
     Evento,
     Grupo,
     GrupoMembro,
@@ -658,8 +659,86 @@ class VotoSerializer(serializers.ModelSerializer):
 # --------------------------------------------------------------------------- #
 # Chat
 # --------------------------------------------------------------------------- #
+class EnqueteGrupoSerializer(serializers.ModelSerializer):
+    """Enquete do chat de grupo, com barras de resultado.
+
+    As opções vêm com contagem de votos e `eu_votei`. Em enquetes não anônimas,
+    cada opção também traz `votantes` (mini-usuários). `encerrada` reflete o
+    fechamento manual **ou** o prazo expirado.
+    """
+
+    criada_por_detalhe = UsuarioMiniSerializer(source="criada_por", read_only=True)
+    opcoes = serializers.SerializerMethodField()
+    total_votos = serializers.SerializerMethodField()
+    encerrada = serializers.SerializerMethodField()
+    meu_voto = serializers.SerializerMethodField()
+
+    class Meta:
+        model = EnqueteGrupo
+        fields = [
+            "id",
+            "grupo",
+            "pergunta",
+            "multipla_escolha",
+            "anonima",
+            "prazo",
+            "encerrada",
+            "encerrada_em",
+            "criado_em",
+            "criada_por",
+            "criada_por_detalhe",
+            "opcoes",
+            "total_votos",
+            "meu_voto",
+        ]
+
+    def _uid(self):
+        req = self.context.get("request")
+        u = getattr(req, "user", None)
+        return u.id if (u and u.is_authenticated) else None
+
+    def get_encerrada(self, obj):
+        return obj.esta_fechada
+
+    def get_opcoes(self, obj):
+        uid = self._uid()
+        saida = []
+        for o in obj.opcoes.all():
+            votos = list(o.votos.all())
+            item = {
+                "id": o.id,
+                "texto": o.texto,
+                "ordem": o.ordem,
+                "votos": len(votos),
+                "eu_votei": any(v.usuario_id == uid for v in votos),
+            }
+            if not obj.anonima:
+                item["votantes"] = UsuarioMiniSerializer(
+                    [v.usuario for v in votos], many=True, context=self.context
+                ).data
+            saida.append(item)
+        return saida
+
+    def get_total_votos(self, obj):
+        votantes = set()
+        for o in obj.opcoes.all():
+            for v in o.votos.all():
+                votantes.add(v.usuario_id)
+        return len(votantes)
+
+    def get_meu_voto(self, obj):
+        uid = self._uid()
+        if uid is None:
+            return []
+        return [
+            o.id for o in obj.opcoes.all()
+            if any(v.usuario_id == uid for v in o.votos.all())
+        ]
+
+
 class MensagemSerializer(serializers.ModelSerializer):
     autor_detalhe = UsuarioMiniSerializer(source="autor", read_only=True)
+    enquete_detalhe = EnqueteGrupoSerializer(source="enquete", read_only=True)
 
     class Meta:
         model = Mensagem
@@ -670,9 +749,11 @@ class MensagemSerializer(serializers.ModelSerializer):
             "autor_detalhe",
             "conteudo",
             "anexo",
+            "enquete",
+            "enquete_detalhe",
             "criado_em",
         ]
-        read_only_fields = ["autor", "anexo", "criado_em"]
+        read_only_fields = ["autor", "anexo", "enquete", "criado_em"]
 
 
 # --------------------------------------------------------------------------- #

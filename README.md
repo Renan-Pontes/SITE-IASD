@@ -14,6 +14,7 @@ votação de pautas pelos anciões e uma agenda digital para todos os membros.
 - **Membros** entram numa igreja e recebem um **papel** (visitante, membro, ancião,
   pastor, administrador) — com aprovação da liderança.
 - **Grupos** (ministérios, classes, desbravadores, música…) com **chat**,
+  **enquetes** (com barras de resultado, múltipla escolha, anônimas e prazo),
   cargos internos, eventos próprios e pedidos de entrada.
 - **Eventos** com **fluxo de aprovação**: membros propõem → anciões aprovam.
   Confirmação de presença ("EU VOU"), eventos públicos/privados e recorrência.
@@ -147,7 +148,7 @@ npm run build                  # typecheck + build de produção
 ### Tarefas de manutenção (agendar em produção)
 
 ```bash
-python manage.py fechar_pautas       # encerra pautas com prazo/quórum atingido
+python manage.py fechar_pautas       # encerra pautas (prazo/quórum) e enquetes de grupo expiradas
 python manage.py purgar_auditoria    # remove auditoria > 90 dias (--dias N)
 ```
 

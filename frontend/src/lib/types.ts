@@ -250,6 +250,32 @@ export interface PautaComentario {
   editado_em: string | null;
 }
 
+export interface EnqueteOpcao {
+  id: number;
+  texto: string;
+  ordem: number;
+  votos: number;
+  eu_votei: boolean;
+  votantes?: UsuarioMini[];
+}
+
+export interface EnqueteGrupo {
+  id: number;
+  grupo: number;
+  pergunta: string;
+  multipla_escolha: boolean;
+  anonima: boolean;
+  prazo: string | null;
+  encerrada: boolean;
+  encerrada_em: string | null;
+  criado_em: string;
+  criada_por: number;
+  criada_por_detalhe: UsuarioMini;
+  opcoes: EnqueteOpcao[];
+  total_votos: number;
+  meu_voto: number[];
+}
+
 export interface Mensagem {
   id: number;
   grupo: number;
@@ -257,6 +283,8 @@ export interface Mensagem {
   autor_detalhe: UsuarioMini;
   conteudo: string;
   anexo: string | null;
+  enquete: number | null;
+  enquete_detalhe: EnqueteGrupo | null;
   criado_em: string;
 }
 
