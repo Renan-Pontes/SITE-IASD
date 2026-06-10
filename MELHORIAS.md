@@ -111,3 +111,29 @@ os fluxos principais jogáveis. Lista do que ainda dá pra evoluir.
   passa pelo Canal (admin edita direto).
 - ✅ **Deploy preparado**: Vercel (frontend) + PythonAnywhere (backend), WhiteNoise,
   `.env` via dotenv, healthcheck `/api/health/`, `vercel.json` (SPA). Veja `docs/DEPLOY.md`.
+
+### Rodada de governança avançada + operação
+- ✅ **Conflito de sala**: bloqueio de eventos sobrepostos + endpoint de
+  disponibilidade com sugestões (próximo horário / salas livres); re-checagem ao
+  aplicar a pauta.
+- ✅ **Enquetes no chat de grupo**: múltipla escolha, anônima, prazo, barras de
+  resultado, encerramento manual/automático — distinto das pautas de governança.
+- ✅ **Papel "Líder de igreja"** + **Canal da Liderança** (eleitorado próprio;
+  voto dos anciões é consultivo). Vê eventos privados de toda a igreja.
+- ✅ **Cargo "Secretaria"** (paralelo ao papel): **atas automáticas** (rascunho por
+  pauta encerrada, editar/publicar) + **acesso de sigilo** aos votos anônimos (com
+  auditoria).
+- ✅ **Modo igreja única** (`MULTI_CHURCH_ENABLED`): cadastro auto-vincula à Vila
+  Formosa; UI esconde lista/seguir/trocar; `/api/config/`.
+- ✅ **Painel de auditoria** (liderança/secretaria): filtros (data/tipo), export
+  CSV, impressão/PDF, card "Atividade recente" no dashboard.
+- ✅ **Governança da programação**: evento **público = pauta** dos anciões;
+  **privado = aprovação leve** (líder do grupo aprova).
+- ✅ **Histórico vs. permissão** (`papel_desde`): autorização ao vivo, sem
+  carry-over; líderes só veem o que é posterior à promoção; auditoria de
+  concessão/remoção de papel.
+- ✅ **Criar evento só para liderança** (líder de grupo/igreja/ancião): botão
+  escondido + 403 + `<BotaoCriarEvento/>` + empty-state educativo.
+- ✅ **Monitoramento de login + desativação de inativos**: `last_login`, painel de
+  usuários (desativar/reativar), comando `desativar_inativos` (`--dias`,
+  `--dry-run`), aviso de conta inativa no login + solicitação de reativação.
