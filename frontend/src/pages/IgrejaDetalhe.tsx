@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
-import { MapPin, Phone, Settings, ShieldCheck, LogIn, Gavel, Star } from "lucide-react";
+import { MapPin, Phone, Settings, ShieldCheck, LogIn, Gavel, Star, FileText } from "lucide-react";
 import { api } from "../api/client";
 import { useAuth } from "../auth/AuthContext";
 import { useToast } from "../ui/Toast";
@@ -15,7 +15,7 @@ export default function IgrejaDetalhe() {
   const { id } = useParams();
   const nav = useNavigate();
   const toast = useToast();
-  const { logado, lideroIgreja, souLiderIgreja, recarregar, me } = useAuth();
+  const { logado, lideroIgreja, souLiderIgreja, souSecretaria, recarregar, me } = useAuth();
   const [igreja, setIgreja] = useState<Igreja | null>(null);
   const [aba, setAba] = useState<Aba>("agenda");
   const [eventos, setEventos] = useState<Evento[]>([]);
@@ -180,6 +180,13 @@ export default function IgrejaDetalhe() {
               <Link to={`/igreja/${igreja.id}/canal?canal=lideranca`}>
                 <Botao variante="secondary">
                   <ShieldCheck size={18} /> Canal da Liderança
+                </Botao>
+              </Link>
+            )}
+            {(souSecretaria(igreja.id) || sou) && (
+              <Link to={`/igreja/${igreja.id}/atas`}>
+                <Botao variante="secondary">
+                  <FileText size={18} /> Atas
                 </Botao>
               </Link>
             )}

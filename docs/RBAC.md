@@ -21,6 +21,7 @@ em [`backend/API/roles.py`](../backend/API/roles.py) e
 | **ancião / pastor** | Aprovar eventos da igreja, criar/votar/encerrar pautas, aprovar membros, definir papéis. |
 | **líder de igreja** | Nível entre membro e ancião. Tem o **Canal da Liderança** (cria pautas/enquetes com método próprio) e vê **eventos privados de qualquer grupo** da igreja. **Não** gere a programação (não aprova eventos nem cria grupos/salas). |
 | **líder/diretor de grupo** | Gerencia o grupo: aprovar membros, definir cargos, criar eventos do grupo, chat. (Cargo interno do grupo — ≠ líder de igreja.) |
+| **secretaria** (cargo paralelo) | Boolean independente do papel. Registra **atas**, e tem **acesso de sigilo** aos votos de pautas anônimas (cada acesso é auditado). Não substitui o papel — soma a ele. |
 | **membro da igreja** | Vê a programação, confirma presença, **propõe eventos** (vão para aprovação), pede entrada em grupos. |
 | **membro de grupo** | Tudo de membro + chat do grupo + eventos privados do grupo. |
 | **visitante** | Vê a programação pública e pode pedir entrada numa igreja. |

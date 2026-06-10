@@ -21,6 +21,7 @@ from rest_framework.views import APIView
 
 from . import roles
 from .models import (
+    Ata,
     CargoGrupo,
     EnqueteGrupo,
     EnqueteOpcao,
@@ -50,6 +51,7 @@ from .models import (
 )
 from .permissions import IsSuperAdmin
 from .serializers import (
+    AtaSerializer,
     AuditLogSerializer,
     EnqueteGrupoSerializer,
     PautaAnexoSerializer,
@@ -584,6 +586,31 @@ class MembroViewSet(viewsets.ModelViewSet):
             "Seu papel mudou",
             f"Você agora é {membro.get_papel_display()} em {membro.igreja.nome}.",
             tipo="papel",
+            link=f"/igreja/{membro.igreja_id}",
+        )
+        return Response(MembroSerializer(membro, context={"request": request}).data)
+
+    @action(detail=True, methods=["post"])
+    def definir_secretaria(self, request, pk=None):
+        """Liga/desliga o cargo de secretaria (paralelo ao papel)."""
+        membro = self.get_object()
+        if not self._exige_lideranca(membro):
+            return Response({"detail": "Sem permissão."}, status=403)
+        ativo = bool(request.data.get("secretaria"))
+        membro.secretaria = ativo
+        membro.save(update_fields=["secretaria"])
+        log_acao(
+            request.user, "definir_secretaria", "Membro", membro.id, {"secretaria": ativo}
+        )
+        notificar(
+            membro.usuario,
+            "Cargo de secretaria atualizado",
+            (
+                f"Você agora é da secretaria de {membro.igreja.nome}."
+                if ativo
+                else f"Seu cargo de secretaria em {membro.igreja.nome} foi removido."
+            ),
+            tipo="secretaria",
             link=f"/igreja/{membro.igreja_id}",
         )
         return Response(MembroSerializer(membro, context={"request": request}).data)
@@ -1301,10 +1328,17 @@ class PautaViewSet(viewsets.ModelViewSet):
             # proponente vê as suas (mesmo não sendo eleitor) para acompanhar.
             igrejas = roles.igrejas_que_lidera_ids(user)
             lider_igrejas = roles.igrejas_lidera_igreja_ids(user)
+            # Secretaria enxerga (e audita) todas as pautas da sua igreja.
+            sec_igrejas = list(
+                Membro.objects.filter(
+                    usuario=user, status=StatusVinculo.ATIVO, secretaria=True
+                ).values_list("igreja_id", flat=True)
+            )
             qs = base.filter(
                 Q(igreja_id__in=igrejas)
                 | Q(criada_por=user)
                 | Q(canal="lideranca", igreja_id__in=lider_igrejas)
+                | Q(igreja_id__in=sec_igrejas)
             ).distinct()
         canal = self.request.query_params.get("canal")
         if canal in ("anciaos", "lideranca"):
@@ -1415,12 +1449,25 @@ class PautaViewSet(viewsets.ModelViewSet):
     @action(detail=True, methods=["get"])
     def votos(self, request, pk=None):
         pauta = self.get_object()
-        # Eleitorado (anciões; líderes no Canal da Liderança) ou o proponente.
+        eh_secretaria = roles.eh_secretaria(request.user, pauta.igreja)
+        # Eleitorado (anciões; líderes no Canal da Liderança), proponente ou secretaria.
         if not (
             roles.pode_votar_pauta(request.user, pauta)
             or pauta.criada_por_id == request.user.id
+            or eh_secretaria
         ):
             return Response({"detail": "Sem permissão."}, status=403)
+        # A secretaria tem acesso de SIGILO: vê os votos (com autor) mesmo em pauta
+        # anônima, inclusive durante a votação — e cada acesso é auditado.
+        if eh_secretaria and pauta.anonima:
+            log_acao(
+                request.user, "secretaria_viu_votos_sigilosos", "Pauta", pauta.id,
+                {"sigilo": "acesso da secretaria a votos de pauta anônima"},
+            )
+            qs = pauta.votos.select_related("usuario", "usuario__profile")
+            return Response(
+                VotoSerializer(qs, many=True, context={"request": request, "revelar_anonimo": True}).data
+            )
         # Em pauta anônima aberta, não revela os votos (nem contagem). Só após encerrar.
         if pauta.anonima and pauta.status == StatusPauta.ABERTA:
             return Response([])
@@ -1548,6 +1595,80 @@ class PautaComentarioViewSet(viewsets.ModelViewSet):
         coment.deletado_em = timezone.now()
         coment.save(update_fields=["deletado_em"])
         return Response(status=status.HTTP_204_NO_CONTENT)
+
+
+# --------------------------------------------------------------------------- #
+# Atas (registro da secretaria)
+# --------------------------------------------------------------------------- #
+class AtaViewSet(viewsets.ModelViewSet):
+    serializer_class = AtaSerializer
+    permission_classes = [IsAuthenticated]
+    filterset_fields = ["igreja", "status"]
+    http_method_names = ["get", "post", "patch", "delete"]
+
+    def get_queryset(self):
+        user = self.request.user
+        qs = Ata.objects.select_related("igreja", "pauta", "criada_por", "criada_por__profile")
+        if not user.is_authenticated:
+            return qs.none()
+        if roles.is_super(user):
+            return qs
+        # Liderança e secretaria das igrejas do usuário enxergam as atas.
+        igrejas = set(roles.igrejas_que_lidera_ids(user))
+        igrejas |= set(
+            Membro.objects.filter(
+                usuario=user, status=StatusVinculo.ATIVO, secretaria=True
+            ).values_list("igreja_id", flat=True)
+        )
+        return qs.filter(igreja_id__in=igrejas)
+
+    def _checar_secretaria(self, igreja):
+        if not roles.eh_secretaria(self.request.user, igreja):
+            from rest_framework.exceptions import PermissionDenied
+
+            raise PermissionDenied("Apenas a secretaria edita atas.")
+
+    def create(self, request, *args, **kwargs):
+        from django.shortcuts import get_object_or_404
+
+        igreja = get_object_or_404(Igreja, pk=request.data.get("igreja"))
+        self._checar_secretaria(igreja)
+        titulo = (request.data.get("titulo") or "").strip()
+        if not titulo:
+            return Response({"titulo": "Informe um título."}, status=400)
+        ata = Ata.objects.create(
+            igreja=igreja, titulo=titulo,
+            conteudo=request.data.get("conteudo", ""), criada_por=request.user,
+        )
+        log_acao(request.user, "criar_ata", "Ata", ata.id)
+        return Response(
+            AtaSerializer(ata, context={"request": request}).data,
+            status=status.HTTP_201_CREATED,
+        )
+
+    def partial_update(self, request, *args, **kwargs):
+        ata = self.get_object()
+        self._checar_secretaria(ata.igreja)
+        for campo in ("titulo", "conteudo"):
+            if campo in request.data:
+                setattr(ata, campo, request.data[campo])
+        ata.save(update_fields=["titulo", "conteudo", "atualizado_em"])
+        log_acao(request.user, "editar_ata", "Ata", ata.id)
+        return Response(AtaSerializer(ata, context={"request": request}).data)
+
+    def destroy(self, request, *args, **kwargs):
+        ata = self.get_object()
+        self._checar_secretaria(ata.igreja)
+        log_acao(request.user, "excluir_ata", "Ata", ata.id)
+        return super().destroy(request, *args, **kwargs)
+
+    @action(detail=True, methods=["post"])
+    def publicar(self, request, pk=None):
+        ata = self.get_object()
+        self._checar_secretaria(ata.igreja)
+        ata.publicar(request.user)
+        log_acao(request.user, "publicar_ata", "Ata", ata.id)
+        return Response(AtaSerializer(ata, context={"request": request}).data)
 
 
 # --------------------------------------------------------------------------- #

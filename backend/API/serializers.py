@@ -7,6 +7,7 @@ from rest_framework import serializers
 
 from . import roles
 from .models import (
+    Ata,
     AuditLog,
     EnqueteGrupo,
     Evento,
@@ -117,6 +118,7 @@ class MeSerializer(serializers.Serializer):
                 "igreja": m.igreja_id,
                 "igreja_nome": m.igreja.nome,
                 "papel": m.papel,
+                "secretaria": m.secretaria,
                 "status": m.status,
                 "eh_lideranca": m.eh_lideranca,
                 "motivo_rejeicao": m.motivo_rejeicao,
@@ -270,6 +272,7 @@ class MembroSerializer(serializers.ModelSerializer):
             "igreja",
             "igreja_nome",
             "papel",
+            "secretaria",
             "status",
             "motivo_rejeicao",
             "data_entrada",
@@ -657,9 +660,38 @@ class VotoSerializer(serializers.ModelSerializer):
         read_only_fields = ["criado_em"]
 
     def get_usuario_detalhe(self, obj):
-        if obj.pauta.anonima:
+        # A secretaria pode revelar o autor mesmo em pauta anônima (sob sigilo);
+        # o viewset sinaliza isso via contexto e registra a auditoria.
+        if obj.pauta.anonima and not self.context.get("revelar_anonimo"):
             return None
         return UsuarioMiniSerializer(obj.usuario, context=self.context).data
+
+
+class AtaSerializer(serializers.ModelSerializer):
+    igreja_nome = serializers.CharField(source="igreja.nome", read_only=True)
+    pauta_titulo = serializers.CharField(source="pauta.titulo", read_only=True, default=None)
+    criada_por_detalhe = UsuarioMiniSerializer(source="criada_por", read_only=True)
+
+    class Meta:
+        model = Ata
+        fields = [
+            "id",
+            "pauta",
+            "pauta_titulo",
+            "igreja",
+            "igreja_nome",
+            "titulo",
+            "conteudo",
+            "status",
+            "criada_por",
+            "criada_por_detalhe",
+            "publicada_em",
+            "criado_em",
+            "atualizado_em",
+        ]
+        read_only_fields = [
+            "pauta", "criada_por", "status", "publicada_em", "criado_em", "atualizado_em",
+        ]
 
 
 # --------------------------------------------------------------------------- #

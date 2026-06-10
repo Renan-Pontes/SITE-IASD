@@ -113,6 +113,20 @@ governança dos anciões:
 Suporta **múltipla escolha** e **prazo** (fechamento automático via
 `fechar_pautas`). Aparecem como **card** no fluxo do chat.
 
+## Secretaria e atas
+
+A **secretaria** (cargo booleano, paralelo ao papel) é a guardiã do registro:
+
+- **Atas automáticas:** ao encerrar, cada pauta gera um **rascunho de ata** em
+  Markdown (`Pauta._gerar_ata_rascunho`) com decisão, método, apuração e descrição.
+  A secretaria revisa, complementa e **publica** (`POST /api/atas/{id}/publicar/`).
+  A ata mostra **apenas contagens** — nunca os autores, preservando o anonimato.
+- **Acesso de sigilo:** a secretaria pode ver os votos (com autor) **mesmo em
+  pautas anônimas**, inclusive durante a votação. É uma exceção deliberada ao
+  princípio "quem votou em quê nunca é revelado" — por isso **cada acesso é
+  registrado na auditoria** (`secretaria_viu_votos_sigilosos`) e a interface
+  exibe um aviso de sigilo. A secretaria responde pelo uso ético dessa visão.
+
 ## Exceção (bootstrapping)
 
 `super_admin` pode criar grupo/sala **direto** (sem votação) com `?direto=1` — usado

@@ -110,6 +110,15 @@ function Membros({ igrejaId }: { igrejaId: number }) {
       toast.erro("Erro ao atualizar papel.");
     }
   };
+  const toggleSecretaria = async (m: Membro) => {
+    try {
+      await api.post(`/api/membros/${m.id}/definir_secretaria/`, { secretaria: !m.secretaria });
+      toast.sucesso(m.secretaria ? "Cargo de secretaria removido." : "Cargo de secretaria atribuído.");
+      carregar();
+    } catch {
+      toast.erro("Erro ao atualizar secretaria.");
+    }
+  };
 
   if (carregando) return <Carregando />;
   const pendentes = membros.filter((m) => m.status === "pendente");
@@ -149,12 +158,13 @@ function Membros({ igrejaId }: { igrejaId: number }) {
         {/* Mobile: cards */}
         <div className="space-y-2 lg:hidden">
           {ativos.map((m) => (
-            <Card key={m.id} className="flex items-center gap-3 p-3">
+            <Card key={m.id} className="flex flex-wrap items-center gap-2 p-3">
               <Avatar nome={m.usuario_detalhe.nome} foto={m.usuario_detalhe.foto} size={40} />
               <span className="flex-1 truncate font-medium text-slate-700 dark:text-slate-200">
                 {m.usuario_detalhe.nome}
               </span>
               <SelectPapel m={m} aoMudar={papel} />
+              <SecretariaToggle m={m} aoMudar={toggleSecretaria} />
             </Card>
           ))}
         </div>
@@ -166,6 +176,7 @@ function Membros({ igrejaId }: { igrejaId: number }) {
               <tr>
                 <th className="p-3 font-semibold">Membro</th>
                 <th className="p-3 font-semibold">Papel</th>
+                <th className="p-3 font-semibold">Secretaria</th>
               </tr>
             </thead>
             <tbody>
@@ -181,6 +192,9 @@ function Membros({ igrejaId }: { igrejaId: number }) {
                   </td>
                   <td className="p-3">
                     <SelectPapel m={m} aoMudar={papel} />
+                  </td>
+                  <td className="p-3">
+                    <SecretariaToggle m={m} aoMudar={toggleSecretaria} />
                   </td>
                 </tr>
               ))}
@@ -206,6 +220,22 @@ function SelectPapel({ m, aoMudar }: { m: Membro; aoMudar: (m: Membro, papel: st
       <option value="pastor">Pastor</option>
       <option value="admin_igreja">Administrador</option>
     </select>
+  );
+}
+
+function SecretariaToggle({ m, aoMudar }: { m: Membro; aoMudar: (m: Membro) => void }) {
+  return (
+    <button
+      onClick={() => aoMudar(m)}
+      className={`rounded-lg px-3 py-1 text-sm font-semibold transition ${
+        m.secretaria
+          ? "bg-marca-600 text-white"
+          : "bg-slate-100 text-slate-500 dark:bg-slate-800"
+      }`}
+      title="Liga/desliga o cargo de secretaria"
+    >
+      {m.secretaria ? "Secretaria ✓" : "Secretaria"}
+    </button>
   );
 }
 

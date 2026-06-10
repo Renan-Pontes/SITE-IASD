@@ -58,6 +58,15 @@ def eh_lider_igreja(user, igreja):
     return bool(m and m.eh_lider_igreja)
 
 
+def eh_secretaria(user, igreja):
+    """Cargo de secretaria: registra atas e tem acesso amplo (inclusive aos
+    votos de pautas anônimas — sob sigilo e com auditoria)."""
+    if is_super(user):
+        return True
+    m = membro_ativo(user, igreja)
+    return bool(m and m.secretaria)
+
+
 def igrejas_lidera_igreja_ids(user):
     """IDs das igrejas onde o usuário é Líder de igreja (papel lider_igreja)."""
     if not user or not user.is_authenticated:

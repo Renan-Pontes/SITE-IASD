@@ -17,7 +17,7 @@ export default function PautaDetalhe() {
   const { id } = useParams();
   const nav = useNavigate();
   const toast = useToast();
-  const { lideroIgreja } = useAuth();
+  const { lideroIgreja, souSecretaria } = useAuth();
   const [pauta, setPauta] = useState<Pauta | null>(null);
   const [votos, setVotos] = useState<Voto[]>([]);
   const [comentario, setComentario] = useState("");
@@ -275,6 +275,12 @@ export default function PautaDetalhe() {
       {votos.length > 0 && (
         <section>
           <h2 className="mb-2 font-bold text-slate-700 dark:text-slate-200">Votos</h2>
+          {pauta.anonima && souSecretaria(pauta.igreja) && (
+            <div className="mb-2 flex items-center gap-2 rounded-xl bg-amber-50 p-3 text-sm font-semibold text-amber-900 dark:bg-amber-900/20 dark:text-amber-200">
+              <Lock size={16} /> Acesso de sigilo da secretaria: você vê os autores de uma
+              votação anônima. Cada acesso fica registrado na auditoria.
+            </div>
+          )}
           <div className="space-y-2">
             {votos.map((v) => (
               <Card key={v.id} className="flex items-center gap-3 p-3">

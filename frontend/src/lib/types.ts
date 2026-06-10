@@ -49,6 +49,7 @@ export interface VinculoIgreja {
   igreja: number;
   igreja_nome: string;
   papel: PapelIgreja;
+  secretaria: boolean;
   status: StatusVinculo;
   eh_lideranca: boolean;
   motivo_rejeicao: string;
@@ -104,9 +105,26 @@ export interface Membro {
   igreja: number;
   igreja_nome: string;
   papel: PapelIgreja;
+  secretaria: boolean;
   status: StatusVinculo;
   motivo_rejeicao: string;
   data_entrada: string;
+}
+
+export interface Ata {
+  id: number;
+  pauta: number | null;
+  pauta_titulo: string | null;
+  igreja: number;
+  igreja_nome: string;
+  titulo: string;
+  conteudo: string;
+  status: "rascunho" | "publicada";
+  criada_por: number | null;
+  criada_por_detalhe: UsuarioMini | null;
+  publicada_em: string | null;
+  criado_em: string;
+  atualizado_em: string;
 }
 
 export interface Grupo {

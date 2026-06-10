@@ -15,6 +15,8 @@ from django.utils import timezone
 from rest_framework.test import APIClient
 
 from API.models import (
+    Ata,
+    AuditLog,
     CargoGrupo,
     EnqueteGrupo,
     EnqueteVoto,
@@ -851,6 +853,71 @@ class EnqueteGrupoTests(TestCase):
         o1 = EnqueteGrupo.objects.get(pk=enq_id).opcoes.first()
         r = c.post(f"/api/enquetes/{enq_id}/votar/", {"opcao": o1.id}, format="json")
         self.assertEqual(r.status_code, 400)
+
+
+class SecretariaTests(TestCase):
+    def setUp(self):
+        self.igreja = Igreja.objects.create(nome="IASD Sec", cidade="SP", estado="SP")
+        self.anciao = cria_user("anciao@iasd.app", "Jose Anciao")
+        Membro.objects.create(usuario=self.anciao, igreja=self.igreja, papel=PapelIgreja.ANCIAO, status=StatusVinculo.ATIVO)
+        self.sec = cria_user("sec@iasd.app", "Sara Secretaria")
+        Membro.objects.create(usuario=self.sec, igreja=self.igreja, papel=PapelIgreja.MEMBRO, secretaria=True, status=StatusVinculo.ATIVO)
+        self.membro = cria_user("membro@iasd.app", "Maria Membro")
+        Membro.objects.create(usuario=self.membro, igreja=self.igreja, papel=PapelIgreja.MEMBRO, status=StatusVinculo.ATIVO)
+
+    def test_pauta_encerrada_gera_ata_rascunho(self):
+        pauta = Pauta.objects.create(titulo="Reforma", igreja=self.igreja, criada_por=self.anciao, metodo_votacao="lider")
+        a = APIClient(); autentica(a, "anciao@iasd.app")
+        a.post(f"/api/pautas/{pauta.id}/votar/", {"opcao": "sim"}, format="json")
+        pauta.refresh_from_db()
+        self.assertEqual(pauta.status, "encerrada")
+        ata = Ata.objects.get(pauta=pauta)
+        self.assertEqual(ata.status, "rascunho")
+        self.assertIn("Aprovada", ata.conteudo)
+
+    def test_secretaria_ve_votos_anonimos_com_auditoria(self):
+        pauta = Pauta.objects.create(titulo="Secreta", igreja=self.igreja, criada_por=self.anciao, anonima=True)
+        Voto.objects.create(pauta=pauta, usuario=self.anciao, opcao="sim")
+        c = APIClient(); autentica(c, "sec@iasd.app")
+        r = c.get(f"/api/pautas/{pauta.id}/votos/")
+        self.assertEqual(r.status_code, 200, r.content)
+        self.assertEqual(len(r.data), 1)
+        self.assertIsNotNone(r.data[0]["usuario_detalhe"])  # secretaria revela o autor
+        self.assertTrue(
+            AuditLog.objects.filter(acao="secretaria_viu_votos_sigilosos", entidade_id=pauta.id).exists()
+        )
+
+    def test_membro_comum_nao_ve_votos(self):
+        pauta = Pauta.objects.create(titulo="Secreta", igreja=self.igreja, criada_por=self.anciao, anonima=True)
+        c = APIClient(); autentica(c, "membro@iasd.app")
+        self.assertIn(c.get(f"/api/pautas/{pauta.id}/votos/").status_code, (403, 404))
+
+    def test_secretaria_edita_e_publica_ata(self):
+        pauta = Pauta.objects.create(titulo="X", igreja=self.igreja, criada_por=self.anciao, metodo_votacao="lider")
+        a = APIClient(); autentica(a, "anciao@iasd.app")
+        a.post(f"/api/pautas/{pauta.id}/votar/", {"opcao": "sim"}, format="json")
+        ata = Ata.objects.get(pauta=pauta)
+        c = APIClient(); autentica(c, "sec@iasd.app")
+        r = c.patch(f"/api/atas/{ata.id}/", {"conteudo": "Ata revisada."}, format="json")
+        self.assertEqual(r.status_code, 200, r.content)
+        self.assertEqual(r.data["conteudo"], "Ata revisada.")
+        pub = c.post(f"/api/atas/{ata.id}/publicar/")
+        self.assertEqual(pub.data["status"], "publicada")
+
+    def test_nao_secretaria_nao_edita_ata(self):
+        ata = Ata.objects.create(igreja=self.igreja, titulo="A", criada_por=self.anciao)
+        c = APIClient(); autentica(c, "anciao@iasd.app")  # ancião vê, mas não edita
+        r = c.patch(f"/api/atas/{ata.id}/", {"conteudo": "x"}, format="json")
+        self.assertEqual(r.status_code, 403)
+
+    def test_definir_secretaria_toggle(self):
+        membro = Membro.objects.get(usuario=self.membro, igreja=self.igreja)
+        c = APIClient(); autentica(c, "anciao@iasd.app")
+        r = c.post(f"/api/membros/{membro.id}/definir_secretaria/", {"secretaria": True}, format="json")
+        self.assertEqual(r.status_code, 200, r.content)
+        self.assertTrue(r.data["secretaria"])
+        membro.refresh_from_db()
+        self.assertTrue(membro.secretaria)
 
 
 class IcalTests(TestCase):

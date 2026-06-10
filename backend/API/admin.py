@@ -3,6 +3,7 @@
 from django.contrib import admin
 
 from .models import (
+    Ata,
     AuditLog,
     EnqueteGrupo,
     EnqueteOpcao,
@@ -51,10 +52,17 @@ class ProfileAdmin(admin.ModelAdmin):
 
 @admin.register(Membro)
 class MembroAdmin(admin.ModelAdmin):
-    list_display = ["usuario", "igreja", "papel", "status", "data_entrada"]
-    list_filter = ["papel", "status", "igreja"]
+    list_display = ["usuario", "igreja", "papel", "secretaria", "status", "data_entrada"]
+    list_filter = ["papel", "secretaria", "status", "igreja"]
     search_fields = ["usuario__username", "usuario__email"]
     autocomplete_fields = ["usuario", "igreja"]
+
+
+@admin.register(Ata)
+class AtaAdmin(admin.ModelAdmin):
+    list_display = ["titulo", "igreja", "status", "criada_por", "publicada_em", "criado_em"]
+    list_filter = ["status", "igreja"]
+    search_fields = ["titulo", "conteudo"]
 
 
 @admin.register(Grupo)

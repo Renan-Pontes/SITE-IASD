@@ -19,6 +19,7 @@ router.register("salas", views.SalaViewSet, basename="sala")
 router.register("eventos", views.EventoViewSet, basename="evento")
 router.register("pautas", views.PautaViewSet, basename="pauta")
 router.register("pauta-comentarios", views.PautaComentarioViewSet, basename="pautacomentario")
+router.register("atas", views.AtaViewSet, basename="ata")
 router.register("notificacoes", views.NotificacaoViewSet, basename="notificacao")
 router.register("auditoria", views.AuditLogViewSet, basename="auditoria")
 

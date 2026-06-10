@@ -276,6 +276,9 @@ class Membro(models.Model):
     papel = models.CharField(
         max_length=20, choices=PapelIgreja.choices, default=PapelIgreja.VISITANTE
     )
+    # Cargo paralelo ao papel: a secretaria registra atas e tem acesso amplo
+    # (inclusive aos votos de pautas anônimas — sob sigilo e com auditoria).
+    secretaria = models.BooleanField(default=False)
     status = models.CharField(
         max_length=12, choices=StatusVinculo.choices, default=StatusVinculo.PENDENTE
     )
@@ -746,7 +749,62 @@ class Pauta(models.Model):
         self.save(update_fields=["status", "decisao"])
         if decisao == "aprovado":
             self.aplicar()
+        self._gerar_ata_rascunho()
         self._notificar_encerramento()
+
+    def _gerar_ata_rascunho(self):
+        """Cria automaticamente um rascunho de ata (em Markdown) ao encerrar.
+
+        Idempotente. Mostra apenas a contagem por opção — nunca os autores,
+        preservando o anonimato mesmo na ata.
+        """
+        if Ata.objects.filter(pauta=self).exists():
+            return
+        from collections import Counter
+
+        c = Counter(v.opcao for v in self.votos_que_contam())
+        decisao_label = {
+            "aprovado": "Aprovada", "rejeitado": "Rejeitada", "empate": "Empate",
+        }.get(self.decisao, self.decisao or "Encerrada")
+        data = timezone.localtime(timezone.now()).strftime("%d/%m/%Y %H:%M")
+        linhas = [
+            f"# Ata — {self.titulo}",
+            "",
+            f"- **Igreja:** {self.igreja.nome}",
+            f"- **Canal:** {self.get_canal_display()}",
+            f"- **Tipo:** {self.get_tipo_display()}",
+            f"- **Método de votação:** {self.get_metodo_votacao_display()}",
+            f"- **Data do encerramento:** {data}",
+            f"- **Decisão:** {decisao_label}",
+            "",
+            "## Apuração",
+        ]
+        if self.tipo == TipoPauta.ENQUETE_LIVRE and self.opcoes:
+            for op in self.opcoes:
+                linhas.append(f"- {op}: {c.get(op, 0)} voto(s)")
+        else:
+            linhas += [
+                f"- Sim: {c.get('sim', 0)}",
+                f"- Não: {c.get('nao', 0)}",
+                f"- Abstenção: {c.get('abstencao', 0)}",
+            ]
+        linhas += [
+            f"- Participação: {len(self.votos_que_contam())} de {self.total_eleitores()} eleitores",
+            "",
+            "## Descrição da proposta",
+            self.descricao or "_(sem descrição)_",
+            "",
+            "---",
+            "_Rascunho gerado automaticamente pelo sistema. A secretaria deve revisar,"
+            " complementar e publicar._",
+        ]
+        Ata.objects.create(
+            pauta=self,
+            igreja=self.igreja,
+            titulo=f"Ata — {self.titulo}",
+            conteudo="\n".join(linhas),
+            criada_por=self.criada_por,
+        )
 
     def _notificar_encerramento(self):
         """Avisa o proponente (e anciões, se aplicada) sobre o desfecho."""
@@ -927,6 +985,52 @@ class PautaAnexo(models.Model):
 
     def __str__(self):
         return self.nome_original or f"Anexo {self.id}"
+
+
+# --------------------------------------------------------------------------- #
+# Ata (registro da secretaria) — rascunho automático por pauta encerrada
+# --------------------------------------------------------------------------- #
+class StatusAta(models.TextChoices):
+    RASCUNHO = "rascunho", "Rascunho"
+    PUBLICADA = "publicada", "Publicada"
+
+
+class Ata(models.Model):
+    pauta = models.OneToOneField(
+        Pauta, on_delete=models.CASCADE, related_name="ata", null=True, blank=True
+    )
+    igreja = models.ForeignKey(Igreja, on_delete=models.CASCADE, related_name="atas")
+    titulo = models.CharField(max_length=255)
+    conteudo = models.TextField(blank=True)  # Markdown
+    status = models.CharField(
+        max_length=12, choices=StatusAta.choices, default=StatusAta.RASCUNHO
+    )
+    criada_por = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True,
+        related_name="atas_criadas",
+    )
+    publicada_por = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True,
+        related_name="atas_publicadas",
+    )
+    publicada_em = models.DateTimeField(null=True, blank=True)
+    criado_em = models.DateTimeField(auto_now_add=True)
+    atualizado_em = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name = "Ata"
+        verbose_name_plural = "Atas"
+        ordering = ["-criado_em"]
+        indexes = [models.Index(fields=["igreja", "status", "-criado_em"])]
+
+    def publicar(self, usuario):
+        self.status = StatusAta.PUBLICADA
+        self.publicada_por = usuario
+        self.publicada_em = timezone.now()
+        self.save(update_fields=["status", "publicada_por", "publicada_em"])
+
+    def __str__(self):
+        return f"Ata: {self.titulo} ({self.get_status_display()})"
 
 
 # --------------------------------------------------------------------------- #
