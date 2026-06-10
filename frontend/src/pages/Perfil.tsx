@@ -13,7 +13,7 @@ import { useToast } from "../ui/Toast";
 import { Botao, Card, Campo, Avatar, Badge } from "../ui/components";
 import { Modal } from "../ui/Modal";
 import { UploadFoto } from "../components/UploadFoto";
-import { rotulo } from "../lib/format";
+import { rotulo, formatData, formatHora } from "../lib/format";
 
 export default function Perfil() {
   const { me, recarregar, sair, ehSuper } = useAuth();
@@ -86,6 +86,11 @@ export default function Perfil() {
         <div className="min-w-0">
           <h2 className="truncate text-xl font-bold text-slate-800">{p.nome}</h2>
           <p className="truncate text-slate-500">{p.email}</p>
+          {p.last_login && (
+            <p className="text-xs text-slate-400">
+              Último acesso: {formatData(p.last_login)} {formatHora(p.last_login)}
+            </p>
+          )}
           {ehSuper && (
             <Badge cor="ouro">
               <ShieldCheck size={14} /> Administrador geral

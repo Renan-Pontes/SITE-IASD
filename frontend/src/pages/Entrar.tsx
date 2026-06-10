@@ -4,7 +4,7 @@ import { useAuth } from "../auth/AuthContext";
 import { useToast } from "../ui/Toast";
 import { Botao, Campo } from "../ui/components";
 import { CampoSenha } from "../components/CampoSenha";
-import { ApiError } from "../api/client";
+import { ApiError, api } from "../api/client";
 
 export default function Entrar() {
   const { entrar } = useAuth();
@@ -14,22 +14,43 @@ export default function Entrar() {
   const [email, setEmail] = useState("");
   const [senha, setSenha] = useState("");
   const [carregando, setCarregando] = useState(false);
+  const [inativo, setInativo] = useState(false);
+  const [reativando, setReativando] = useState(false);
 
   const submeter = async (e: React.FormEvent) => {
     e.preventDefault();
     setCarregando(true);
+    setInativo(false);
     try {
       await entrar(email.trim(), senha);
       toast.sucesso("Bem-vindo de volta!");
       nav(loc.state?.de || "/", { replace: true });
     } catch (err) {
-      toast.erro(
-        err instanceof ApiError && err.status === 401
-          ? "E-mail ou senha incorretos."
-          : "Não foi possível entrar. Tente novamente.",
-      );
+      if (err instanceof ApiError && err.data?.inativo) {
+        setInativo(true);
+        toast.erro(err.message);
+      } else {
+        toast.erro(
+          err instanceof ApiError && err.status === 401
+            ? "E-mail ou senha incorretos."
+            : "Não foi possível entrar. Tente novamente.",
+        );
+      }
     } finally {
       setCarregando(false);
+    }
+  };
+
+  const solicitarReativacao = async () => {
+    setReativando(true);
+    try {
+      await api.post("/api/auth/solicitar-reativacao/", { email: email.trim() });
+      toast.sucesso("Pedido enviado. A liderança da sua igreja vai avaliar.");
+      setInativo(false);
+    } catch {
+      toast.erro("Não foi possível enviar o pedido.");
+    } finally {
+      setReativando(false);
     }
   };
 
@@ -70,6 +91,24 @@ export default function Entrar() {
             <Botao type="submit" full carregando={carregando}>
               Entrar
             </Botao>
+
+            {inativo && (
+              <div className="rounded-xl bg-amber-50 p-3 text-sm text-amber-900">
+                <p className="font-semibold">Conta desativada por inatividade.</p>
+                <p className="mt-1">
+                  Você pode pedir a reativação — a liderança da sua igreja é avisada.
+                </p>
+                <Botao
+                  type="button"
+                  variante="secondary"
+                  className="mt-2"
+                  onClick={solicitarReativacao}
+                  carregando={reativando}
+                >
+                  Solicitar reativação
+                </Botao>
+              </div>
+            )}
             <p className="text-center text-sm text-slate-500">
               Ainda não tem conta?{" "}
               <Link to="/cadastro" className="font-semibold text-marca-700">

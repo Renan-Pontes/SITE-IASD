@@ -18,6 +18,8 @@ from rest_framework.decorators import action, api_view, permission_classes
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
+from rest_framework_simplejwt.serializers import TokenObtainPairSerializer
+from rest_framework_simplejwt.views import TokenObtainPairView
 
 from . import roles
 from .models import (
@@ -281,6 +283,63 @@ class RegisterView(APIView):
         )
 
 
+class LoginSerializer(TokenObtainPairSerializer):
+    """Login JWT com mensagem específica para conta desativada por inatividade."""
+
+    def validate(self, attrs):
+        try:
+            return super().validate(attrs)
+        except Exception:
+            ident = attrs.get(self.username_field, "")
+            u = User.objects.filter(
+                Q(username__iexact=ident) | Q(email__iexact=ident)
+            ).first()
+            if u and not u.is_active:
+                from rest_framework import serializers as drf_serializers
+
+                raise drf_serializers.ValidationError(
+                    {
+                        "detail": "Conta desativada por inatividade. Peça a reativação à liderança da sua igreja.",
+                        "inativo": True,
+                    }
+                )
+            raise
+
+
+class LoginView(TokenObtainPairView):
+    serializer_class = LoginSerializer
+
+
+class SolicitarReativacaoView(APIView):
+    permission_classes = [AllowAny]
+
+    def post(self, request):
+        ident = (request.data.get("email") or "").strip()
+        u = User.objects.filter(
+            Q(email__iexact=ident) | Q(username__iexact=ident)
+        ).first()
+        if u and not u.is_active:
+            log_acao(None, "solicitacao_reativacao", "User", u.id, {"email": ident})
+            igrejas = list(
+                Membro.objects.filter(usuario=u).values_list("igreja_id", flat=True)
+            )
+            for lider in Membro.objects.filter(
+                igreja_id__in=igrejas, status=StatusVinculo.ATIVO,
+                papel__in=[PapelIgreja.ANCIAO, PapelIgreja.PASTOR, PapelIgreja.ADMIN],
+            ).select_related("usuario", "igreja"):
+                notificar(
+                    lider.usuario,
+                    "Pedido de reativação de conta",
+                    f"{u.get_full_name() or u.email} pediu a reativação da conta.",
+                    tipo="reativacao",
+                    link=f"/admin/igreja/{lider.igreja_id}",
+                )
+        # Resposta genérica (não revela se a conta existe/está inativa).
+        return Response(
+            {"detail": "Se houver uma conta inativa com esse e-mail, a liderança foi avisada."}
+        )
+
+
 class MeView(APIView):
     permission_classes = [IsAuthenticated]
 
@@ -487,7 +546,13 @@ class IgrejaViewSet(viewsets.ModelViewSet):
             qs = qs.filter(status=StatusVinculo.ATIVO)
         elif status_filtro:
             qs = qs.filter(status=status_filtro)
-        qs = qs.order_by("status", "usuario__first_name")
+        # Ordenação (ex.: ?ordering=-last_login para o painel "Usuários da igreja").
+        ordering = request.query_params.get("ordering")
+        if ordering in ("last_login", "-last_login"):
+            campo = "usuario__last_login"
+            qs = qs.order_by(f"-{campo}" if ordering.startswith("-") else campo)
+        else:
+            qs = qs.order_by("status", "usuario__first_name")
         return Response(
             MembroSerializer(qs, many=True, context={"request": request}).data
         )
@@ -664,6 +729,35 @@ class MembroViewSet(viewsets.ModelViewSet):
             ),
             tipo="secretaria",
             link=f"/igreja/{membro.igreja_id}",
+        )
+        return Response(MembroSerializer(membro, context={"request": request}).data)
+
+    @action(detail=True, methods=["post"])
+    def desativar(self, request, pk=None):
+        """Desativa a CONTA do usuário (ele não consegue mais entrar)."""
+        membro = self.get_object()
+        if not self._exige_lideranca(membro):
+            return Response({"detail": "Sem permissão."}, status=403)
+        if roles.is_super(membro.usuario):
+            return Response({"detail": "Não é possível desativar um administrador geral."}, status=400)
+        membro.usuario.is_active = False
+        membro.usuario.save(update_fields=["is_active"])
+        log_acao(request.user, "desativar_usuario", "User", membro.usuario_id)
+        return Response(MembroSerializer(membro, context={"request": request}).data)
+
+    @action(detail=True, methods=["post"])
+    def reativar(self, request, pk=None):
+        membro = self.get_object()
+        if not self._exige_lideranca(membro):
+            return Response({"detail": "Sem permissão."}, status=403)
+        membro.usuario.is_active = True
+        membro.usuario.save(update_fields=["is_active"])
+        log_acao(request.user, "reativar_usuario", "User", membro.usuario_id)
+        notificar(
+            membro.usuario,
+            "Conta reativada",
+            f"Sua conta foi reativada em {membro.igreja.nome}. Você já pode entrar.",
+            tipo="conta_reativada",
         )
         return Response(MembroSerializer(membro, context={"request": request}).data)
 

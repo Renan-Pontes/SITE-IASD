@@ -2,10 +2,7 @@
 
 from django.urls import include, path
 from rest_framework.routers import DefaultRouter
-from rest_framework_simplejwt.views import (
-    TokenObtainPairView,
-    TokenRefreshView,
-)
+from rest_framework_simplejwt.views import TokenRefreshView
 
 from . import views
 
@@ -30,8 +27,9 @@ urlpatterns = [
     path("search/", views.search, name="search"),
     # Autenticação (JWT)
     path("auth/register/", views.RegisterView.as_view(), name="register"),
-    path("auth/login/", TokenObtainPairView.as_view(), name="login"),
+    path("auth/login/", views.LoginView.as_view(), name="login"),
     path("auth/refresh/", TokenRefreshView.as_view(), name="refresh"),
+    path("auth/solicitar-reativacao/", views.SolicitarReativacaoView.as_view(), name="solicitar-reativacao"),
     path("auth/me/", views.MeView.as_view(), name="me"),
     path("auth/me/foto/", views.MeFotoView.as_view(), name="me-foto"),
     path("auth/trocar-senha/", views.TrocarSenhaView.as_view(), name="trocar-senha"),

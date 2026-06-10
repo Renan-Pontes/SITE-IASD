@@ -151,7 +151,14 @@ npm run build                  # typecheck + build de produção
 python manage.py fechar_pautas       # encerra pautas (prazo/quórum) e enquetes de grupo expiradas
 python manage.py purgar_auditoria    # remove auditoria > 90 dias (--dias N)
 python manage.py seed_vila_formosa   # garante a igreja única (modo mono-igreja)
+python manage.py desativar_inativos  # desativa contas sem login há 180 dias (--dias N, --dry-run)
 ```
+
+> **Login e inatividade:** o `last_login` é atualizado a cada login (JWT). Contas
+> sem acesso há muito tempo são desativadas pelo `desativar_inativos` (agende
+> semanal). Quem tenta entrar numa conta desativada vê um aviso e pode
+> **solicitar reativação** (`POST /api/auth/solicitar-reativacao/`) — a liderança
+> da igreja é notificada e reativa pelo painel **Usuários** (Administrar igreja).
 
 ### Modo igreja única (mono-igreja)
 

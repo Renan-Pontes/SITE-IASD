@@ -11,7 +11,7 @@ import type { Grupo, Igreja, Membro, Sala } from "../lib/types";
 import { Botao, Card, Carregando, Avatar, Badge, Campo, Vazio } from "../ui/components";
 import { rotulo } from "../lib/format";
 
-type Aba = "membros" | "grupos" | "salas" | "dados";
+type Aba = "membros" | "usuarios" | "grupos" | "salas" | "dados";
 
 export default function AdminIgreja() {
   const { id } = useParams();
@@ -51,6 +51,7 @@ export default function AdminIgreja() {
       <div className="flex gap-1 overflow-x-auto rounded-xl bg-slate-100 p-1">
         {([
           ["membros", "Membros"],
+          ["usuarios", "Usuários"],
           ["grupos", "Grupos"],
           ["salas", "Salas"],
           ["dados", "Dados"],
@@ -68,6 +69,7 @@ export default function AdminIgreja() {
       </div>
 
       {aba === "membros" && <Membros igrejaId={igreja.id} />}
+      {aba === "usuarios" && <PainelUsuarios igrejaId={igreja.id} />}
       {aba === "grupos" && <Grupos igrejaId={igreja.id} />}
       {aba === "salas" && <Salas igrejaId={igreja.id} />}
       {aba === "dados" && <Dados igreja={igreja} aoSalvar={setIgreja} ehAdmin={ehAdmin} />}
@@ -220,6 +222,91 @@ function SelectPapel({ m, aoMudar }: { m: Membro; aoMudar: (m: Membro, papel: st
       <option value="pastor">Pastor</option>
       <option value="admin_igreja">Administrador</option>
     </select>
+  );
+}
+
+// Inativo há mais de ~150 dias é candidato a desativação (aviso preventivo).
+const DIAS_ALERTA = 150;
+
+function PainelUsuarios({ igrejaId }: { igrejaId: number }) {
+  const toast = useToast();
+  const [usuarios, setUsuarios] = useState<Membro[]>([]);
+  const [carregando, setCarregando] = useState(true);
+
+  const carregar = () => {
+    setCarregando(true);
+    api
+      .get<Membro[]>(`/api/igrejas/${igrejaId}/membros/?status=&ordering=-last_login`)
+      .then(setUsuarios)
+      .finally(() => setCarregando(false));
+  };
+  useEffect(carregar, [igrejaId]);
+
+  const acao = async (m: Membro, ativar: boolean) => {
+    try {
+      await api.post(`/api/membros/${m.id}/${ativar ? "reativar" : "desativar"}/`);
+      toast.sucesso(ativar ? "Conta reativada." : "Conta desativada.");
+      carregar();
+    } catch {
+      toast.erro("Não foi possível atualizar.");
+    }
+  };
+
+  const diasInativo = (m: Membro) => {
+    if (!m.last_login) return Infinity;
+    return Math.floor((Date.now() - new Date(m.last_login).getTime()) / 86400000);
+  };
+
+  if (carregando) return <Carregando />;
+
+  return (
+    <div className="space-y-2">
+      <p className="text-sm text-slate-500">
+        Ordenado por último acesso. Contas sem login há muito tempo podem ser
+        desativadas (manual ou pelo comando <code>desativar_inativos</code>).
+      </p>
+      {usuarios.map((m) => {
+        const dias = diasInativo(m);
+        const alerta = m.usuario_ativo && dias >= DIAS_ALERTA;
+        return (
+          <Card key={m.id} className="flex flex-wrap items-center gap-3 p-3">
+            <Avatar nome={m.usuario_detalhe.nome} foto={m.usuario_detalhe.foto} size={40} />
+            <div className="min-w-0 flex-1">
+              <p className="truncate font-medium text-slate-700 dark:text-slate-200">
+                {m.usuario_detalhe.nome}
+              </p>
+              <p className="text-xs text-slate-400">
+                {m.last_login
+                  ? `Último acesso há ${dias === Infinity ? "—" : `${dias} dia(s)`}`
+                  : "Nunca acessou"}
+              </p>
+            </div>
+            {!m.usuario_ativo ? (
+              <Badge cor="vermelho">Desativada</Badge>
+            ) : alerta ? (
+              <Badge cor="ouro">Inativa há muito</Badge>
+            ) : (
+              <Badge cor="marca">Ativa</Badge>
+            )}
+            {m.usuario_ativo ? (
+              <button
+                onClick={() => acao(m, false)}
+                className="rounded-lg bg-rose-100 px-3 py-1 text-sm font-semibold text-rose-600 dark:bg-rose-900/30"
+              >
+                Desativar
+              </button>
+            ) : (
+              <button
+                onClick={() => acao(m, true)}
+                className="rounded-lg bg-marca-600 px-3 py-1 text-sm font-semibold text-white"
+              >
+                Reativar
+              </button>
+            )}
+          </Card>
+        );
+      })}
+    </div>
   );
 }
 

@@ -64,6 +64,7 @@ class ProfileSerializer(serializers.ModelSerializer):
         source="igreja_principal.nome", read_only=True
     )
     is_super_admin = serializers.BooleanField(read_only=True)
+    last_login = serializers.DateTimeField(source="user.last_login", read_only=True)
 
     class Meta:
         model = Profile
@@ -84,8 +85,9 @@ class ProfileSerializer(serializers.ModelSerializer):
             "is_super_admin",
             "fonte_grande",
             "notificacoes_email",
+            "last_login",
         ]
-        read_only_fields = ["foto"]
+        read_only_fields = ["foto", "last_login"]
 
     def get_nome(self, obj):
         return obj.nome
@@ -263,6 +265,8 @@ class IgrejaSerializer(serializers.ModelSerializer):
 class MembroSerializer(serializers.ModelSerializer):
     usuario_detalhe = UsuarioMiniSerializer(source="usuario", read_only=True)
     igreja_nome = serializers.CharField(source="igreja.nome", read_only=True)
+    last_login = serializers.DateTimeField(source="usuario.last_login", read_only=True)
+    usuario_ativo = serializers.BooleanField(source="usuario.is_active", read_only=True)
 
     class Meta:
         model = Membro
@@ -278,6 +282,8 @@ class MembroSerializer(serializers.ModelSerializer):
             "status",
             "motivo_rejeicao",
             "data_entrada",
+            "last_login",
+            "usuario_ativo",
         ]
         read_only_fields = ["usuario", "data_entrada", "motivo_rejeicao", "papel_desde"]
 

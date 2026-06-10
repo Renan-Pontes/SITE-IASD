@@ -1107,6 +1107,76 @@ class MonoIgrejaTests(TestCase):
         self.assertIsNone(cfg.data["igreja_unica"])
 
 
+class MonitoramentoLoginTests(TestCase):
+    def setUp(self):
+        self.igreja = Igreja.objects.create(nome="IASD Mon", cidade="SP", estado="SP")
+        self.anciao = cria_user("anciao@iasd.app", "Jose Anciao")
+        Membro.objects.create(usuario=self.anciao, igreja=self.igreja, papel=PapelIgreja.ANCIAO, status=StatusVinculo.ATIVO)
+        self.membro = cria_user("membro@iasd.app", "Maria Membro")
+        self.m_membro = Membro.objects.create(usuario=self.membro, igreja=self.igreja, papel=PapelIgreja.MEMBRO, status=StatusVinculo.ATIVO)
+
+    def test_login_popula_last_login(self):
+        u = cria_user("u@iasd.app")
+        self.assertIsNone(u.last_login)
+        c = APIClient(); autentica(c, "u@iasd.app")
+        u.refresh_from_db()
+        self.assertIsNotNone(u.last_login)
+
+    def test_login_inativo_mensagem_especifica(self):
+        u = cria_user("inativo@iasd.app")
+        User.objects.filter(pk=u.pk).update(is_active=False)
+        c = APIClient()
+        r = c.post("/api/auth/login/", {"username": "inativo@iasd.app", "password": "iasd1234"}, format="json")
+        self.assertEqual(r.status_code, 400)
+        self.assertTrue(r.data.get("inativo"))
+
+    def test_solicitar_reativacao_notifica_lideranca(self):
+        from API.models import Notificacao
+
+        u = cria_user("inativo2@iasd.app")
+        Membro.objects.create(usuario=u, igreja=self.igreja, papel=PapelIgreja.MEMBRO, status=StatusVinculo.ATIVO)
+        User.objects.filter(pk=u.pk).update(is_active=False)
+        c = APIClient()
+        r = c.post("/api/auth/solicitar-reativacao/", {"email": "inativo2@iasd.app"}, format="json")
+        self.assertEqual(r.status_code, 200)
+        self.assertTrue(Notificacao.objects.filter(usuario=self.anciao, tipo="reativacao").exists())
+
+    def test_anciao_desativa_e_reativa(self):
+        c = APIClient(); autentica(c, "anciao@iasd.app")
+        r = c.post(f"/api/membros/{self.m_membro.id}/desativar/")
+        self.assertEqual(r.status_code, 200, r.content)
+        self.membro.refresh_from_db()
+        self.assertFalse(self.membro.is_active)
+        r = c.post(f"/api/membros/{self.m_membro.id}/reativar/")
+        self.assertEqual(r.status_code, 200, r.content)
+        self.membro.refresh_from_db()
+        self.assertTrue(self.membro.is_active)
+
+    def test_membro_ordenado_por_last_login(self):
+        c = APIClient(); autentica(c, "anciao@iasd.app")
+        r = c.get(f"/api/igrejas/{self.igreja.id}/membros/?ordering=-last_login")
+        self.assertEqual(r.status_code, 200)
+        self.assertIn("last_login", r.data[0])
+        self.assertIn("usuario_ativo", r.data[0])
+
+    def test_command_desativa_inativos(self):
+        velho = cria_user("velho@iasd.app")
+        User.objects.filter(pk=velho.pk).update(
+            last_login=timezone.now() - timedelta(days=400),
+            date_joined=timezone.now() - timedelta(days=500),
+        )
+        novo = cria_user("recente@iasd.app")
+        User.objects.filter(pk=novo.pk).update(last_login=timezone.now())
+        # dry-run não altera nada.
+        call_command("desativar_inativos", "--dry-run")
+        velho.refresh_from_db(); self.assertTrue(velho.is_active)
+        # execução real desativa só o inativo.
+        call_command("desativar_inativos")
+        velho.refresh_from_db(); novo.refresh_from_db()
+        self.assertFalse(velho.is_active)
+        self.assertTrue(novo.is_active)
+
+
 class IcalTests(TestCase):
     def setUp(self):
         self.igreja = Igreja.objects.create(nome="IASD Ical", cidade="SP", estado="SP")

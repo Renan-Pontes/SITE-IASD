@@ -43,6 +43,7 @@ export interface Profile {
   is_super_admin: boolean;
   fonte_grande: boolean;
   notificacoes_email: boolean;
+  last_login: string | null;
 }
 
 export interface VinculoIgreja {
@@ -111,6 +112,8 @@ export interface Membro {
   status: StatusVinculo;
   motivo_rejeicao: string;
   data_entrada: string;
+  last_login: string | null;
+  usuario_ativo: boolean;
 }
 
 export interface Ata {
