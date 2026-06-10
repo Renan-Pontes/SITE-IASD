@@ -31,6 +31,7 @@ from django.utils.text import slugify
 class PapelIgreja(models.TextChoices):
     VISITANTE = "visitante", "Visitante"
     MEMBRO = "membro", "Membro"
+    LIDER_IGREJA = "lider_igreja", "Líder de igreja"
     ANCIAO = "anciao", "Ancião"
     PASTOR = "pastor", "Pastor"
     ADMIN = "admin_igreja", "Administrador da igreja"
@@ -90,6 +91,13 @@ class StatusPauta(models.TextChoices):
     ABERTA = "aberta", "Aberta"
     ENCERRADA = "encerrada", "Encerrada"
     EXPIRADA_SEM_QUORUM = "expirada_sem_quorum", "Expirada sem quórum"
+
+
+class CanalPauta(models.TextChoices):
+    """Onde a pauta tramita e quem forma o eleitorado (quórum)."""
+
+    ANCIAOS = "anciaos", "Canal dos Anciões"
+    LIDERANCA = "lideranca", "Canal da Liderança"
 
 
 class MetodoVotacao(models.TextChoices):
@@ -297,12 +305,22 @@ class Membro(models.Model):
 
     @property
     def eh_lideranca(self):
-        """Ancião, pastor ou admin da igreja — quem aprova/decide."""
+        """Ancião, pastor ou admin da igreja — quem aprova/decide a programação."""
         return self.papel in {
             PapelIgreja.ANCIAO,
             PapelIgreja.PASTOR,
             PapelIgreja.ADMIN,
         }
+
+    @property
+    def eh_lider_igreja(self):
+        """Líder de igreja: nível entre membro e ancião.
+
+        Tem o próprio **Canal da Liderança** (cria pautas/enquetes com método) e
+        enxerga eventos privados de qualquer grupo da igreja, mas **não** gere a
+        programação (não aprova eventos nem cria grupos/salas).
+        """
+        return self.papel == PapelIgreja.LIDER_IGREJA
 
     def __str__(self):
         return f"{self.usuario} @ {self.igreja} ({self.get_papel_display()})"
@@ -550,6 +568,10 @@ class Pauta(models.Model):
     metodo_votacao = models.CharField(
         max_length=20, choices=MetodoVotacao.choices, default=MetodoVotacao.MAIORIA_SIMPLES
     )
+    canal = models.CharField(
+        max_length=12, choices=CanalPauta.choices, default=CanalPauta.ANCIAOS,
+        help_text="Eleitorado: anciões (governança) ou líderes de igreja (liderança).",
+    )
     # Proposta concreta (ex.: {"antes": {...}, "depois": {...}} ou dados de criação).
     payload = models.JSONField(null=True, blank=True)
     # Opções customizadas para enquete_livre (lista de strings). Vazio = sim/não/abstenção.
@@ -584,20 +606,44 @@ class Pauta(models.Model):
 
     @property
     def quorum_atingido(self):
-        return bool(self.quorum_minimo and self.votos.count() >= self.quorum_minimo)
+        return bool(self.quorum_minimo and len(self.votos_que_contam()) >= self.quorum_minimo)
 
-    def total_anciaos(self):
-        """Nº de anciões/pastores/admins ativos da igreja (eleitorado da pauta)."""
+    @property
+    def papeis_eleitores(self):
+        """Papéis que formam o eleitorado (quórum) conforme o canal da pauta."""
+        if self.canal == CanalPauta.LIDERANCA:
+            return [PapelIgreja.LIDER_IGREJA]
+        return [PapelIgreja.ANCIAO, PapelIgreja.PASTOR, PapelIgreja.ADMIN]
+
+    def eleitores(self):
+        """Membros ativos que compõem o eleitorado da pauta (base do quórum)."""
         return Membro.objects.filter(
             igreja=self.igreja,
             status=StatusVinculo.ATIVO,
-            papel__in=[PapelIgreja.ANCIAO, PapelIgreja.PASTOR, PapelIgreja.ADMIN],
-        ).count()
+            papel__in=self.papeis_eleitores,
+        )
+
+    def total_eleitores(self):
+        return self.eleitores().count()
+
+    # Alias histórico (mantido por compatibilidade; o eleitorado agora é por canal).
+    def total_anciaos(self):
+        return self.total_eleitores()
+
+    def votos_que_contam(self):
+        """Votos que entram na apuração.
+
+        No Canal da Liderança os anciões podem votar de forma **consultiva**, mas
+        esses votos **não** contam para quórum/decisão — só os dos líderes de
+        igreja. No Canal dos Anciões todos os votantes já são do eleitorado.
+        """
+        ids = set(self.eleitores().values_list("usuario_id", flat=True))
+        return [v for v in self.votos.all() if v.usuario_id in ids]
 
     def _opcao_vencedora(self):
         from collections import Counter
 
-        contagem = Counter(v.opcao for v in self.votos.all())
+        contagem = Counter(v.opcao for v in self.votos_que_contam())
         vencedora, melhor = "", -1
         for op in self.opcoes or []:
             n = contagem.get(op, 0)
@@ -647,10 +693,11 @@ class Pauta(models.Model):
             return False
         from collections import Counter
 
-        contagem = Counter(v.opcao for v in self.votos.all())
+        contam = self.votos_que_contam()
+        contagem = Counter(v.opcao for v in contam)
         sim, nao = contagem.get("sim", 0), contagem.get("nao", 0)
-        votaram = self.votos.count()
-        total_el = max(self.total_anciaos(), 1)
+        votaram = len(contam)
+        total_el = max(self.total_eleitores(), 1)
         prazo_expirou = self.expirada
         todos_votaram = votaram >= total_el
         quorum_ok = (not self.quorum_minimo) or votaram >= self.quorum_minimo
@@ -685,12 +732,12 @@ class Pauta(models.Model):
             return
         from collections import Counter
 
-        c = Counter(v.opcao for v in self.votos.all())
+        c = Counter(v.opcao for v in self.votos_que_contam())
         if self.tipo == TipoPauta.ENQUETE_LIVRE and self.opcoes:
             self._encerrar(self._opcao_vencedora())
         else:
             self._encerrar(
-                self._decisao_final(c.get("sim", 0), c.get("nao", 0), max(self.total_anciaos(), 1))
+                self._decisao_final(c.get("sim", 0), c.get("nao", 0), max(self.total_eleitores(), 1))
             )
 
     def _encerrar(self, decisao):

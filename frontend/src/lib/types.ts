@@ -1,7 +1,13 @@
 // Tipos espelhando a API DRF.
 
 export type StatusVinculo = "pendente" | "ativo" | "rejeitado" | "inativo";
-export type PapelIgreja = "visitante" | "membro" | "anciao" | "pastor" | "admin_igreja";
+export type PapelIgreja =
+  | "visitante"
+  | "membro"
+  | "lider_igreja"
+  | "anciao"
+  | "pastor"
+  | "admin_igreja";
 export type CargoGrupo = "membro" | "secretario" | "lider" | "diretor";
 export type StatusEvento =
   | "rascunho"
@@ -191,7 +197,9 @@ export interface Pauta {
   criada_por_detalhe: UsuarioMini | null;
   tipo: TipoPauta;
   categoria: string;
+  canal: "anciaos" | "lideranca";
   metodo_votacao: string;
+  pode_votar: boolean;
   payload: any | null;
   opcoes: string[] | null;
   anonima: boolean;

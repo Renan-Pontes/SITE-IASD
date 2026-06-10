@@ -512,6 +512,7 @@ class PautaSerializer(serializers.ModelSerializer):
     total_eleitores = serializers.SerializerMethodField()
     pendentes = serializers.SerializerMethodField()
     mostra_resultado = serializers.SerializerMethodField()
+    pode_votar = serializers.SerializerMethodField()
     expirada = serializers.BooleanField(read_only=True)
     quorum_atingido = serializers.BooleanField(read_only=True)
 
@@ -527,7 +528,9 @@ class PautaSerializer(serializers.ModelSerializer):
             "criada_por_detalhe",
             "tipo",
             "categoria",
+            "canal",
             "metodo_votacao",
+            "pode_votar",
             "payload",
             "opcoes",
             "anonima",
@@ -570,20 +573,23 @@ class PautaSerializer(serializers.ModelSerializer):
         }
 
     def get_total_votos(self, obj):
-        return obj.votos.count()
+        # Participação do eleitorado (no Canal da Liderança, exclui votos
+        # consultivos dos anciões — que não contam para o quórum).
+        return len(obj.votos_que_contam())
 
     def get_total_eleitores(self, obj):
-        return obj.total_anciaos()
+        return obj.total_eleitores()
+
+    def get_pode_votar(self, obj):
+        request = self.context.get("request")
+        if not request or not request.user.is_authenticated:
+            return False
+        return roles.pode_votar_pauta(request.user, obj)
 
     def get_pendentes(self, obj):
-        """Anciões que ainda não votaram (para cobrar) — não vaza o voto deles."""
-        from .models import Membro, StatusVinculo, PapelIgreja
-
+        """Eleitores que ainda não votaram (para cobrar) — não vaza o voto deles."""
         votaram = set(obj.votos.values_list("usuario_id", flat=True))
-        qs = Membro.objects.filter(
-            igreja=obj.igreja, status=StatusVinculo.ATIVO,
-            papel__in=[PapelIgreja.ANCIAO, PapelIgreja.PASTOR, PapelIgreja.ADMIN],
-        ).exclude(usuario_id__in=votaram).select_related("usuario")
+        qs = obj.eleitores().exclude(usuario_id__in=votaram).select_related("usuario")
         return [
             {"id": m.usuario_id, "nome": m.usuario.get_full_name() or m.usuario.username}
             for m in qs

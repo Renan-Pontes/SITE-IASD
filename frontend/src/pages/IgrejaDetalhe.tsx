@@ -15,7 +15,7 @@ export default function IgrejaDetalhe() {
   const { id } = useParams();
   const nav = useNavigate();
   const toast = useToast();
-  const { logado, lideroIgreja, recarregar, me } = useAuth();
+  const { logado, lideroIgreja, souLiderIgreja, recarregar, me } = useAuth();
   const [igreja, setIgreja] = useState<Igreja | null>(null);
   const [aba, setAba] = useState<Aba>("agenda");
   const [eventos, setEventos] = useState<Evento[]>([]);
@@ -90,6 +90,7 @@ export default function IgrejaDetalhe() {
 
   if (!igreja) return <Carregando />;
   const sou = lideroIgreja(igreja.id);
+  const souLider = souLiderIgreja(igreja.id);
   const motivoRejIgreja = me?.vinculos_igreja.find((v) => v.igreja === igreja.id)?.motivo_rejeicao;
 
   return (
@@ -174,6 +175,13 @@ export default function IgrejaDetalhe() {
                   </Botao>
                 </Link>
               </>
+            )}
+            {(souLider || sou) && (
+              <Link to={`/igreja/${igreja.id}/canal?canal=lideranca`}>
+                <Botao variante="secondary">
+                  <ShieldCheck size={18} /> Canal da Liderança
+                </Botao>
+              </Link>
             )}
           </div>
         </div>

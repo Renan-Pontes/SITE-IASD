@@ -39,7 +39,10 @@ export default function PautaDetalhe() {
 
   const encerrada = pauta.status !== "aberta" || pauta.expirada;
   const semQuorum = pauta.status === "expirada_sem_quorum";
-  const sou = lideroIgreja(pauta.igreja);
+  // Quem vota: o backend informa via pode_votar (anciões; líderes no Canal da
+  // Liderança). Fallback para liderança da igreja se o campo não vier.
+  const sou = pauta.pode_votar ?? lideroIgreja(pauta.igreja);
+  const eleitorLabel = pauta.canal === "lideranca" ? "líderes" : "anciões";
   const ehEnquete = pauta.tipo === "enquete_livre" && !!pauta.opcoes?.length;
 
   // Opções de voto: enquete usa as customizadas; senão sim/não/abstenção.
@@ -226,7 +229,7 @@ export default function PautaDetalhe() {
             🔒 Votação anônima. Os votos serão revelados após o encerramento.
           </div>
           <p className="text-center text-lg font-bold text-slate-800 dark:text-slate-100">
-            {pauta.total_votos} de {pauta.total_eleitores} anciões já votaram
+            {pauta.total_votos} de {pauta.total_eleitores} {eleitorLabel} já votaram
           </p>
           {pauta.pendentes.length > 0 && (
             <div className="mt-3">

@@ -52,6 +52,43 @@ def eh_lideranca_igreja(user, igreja):
     return bool(m and m.eh_lideranca)
 
 
+def eh_lider_igreja(user, igreja):
+    """Líder de igreja (nível entre membro e ancião) — dono do Canal da Liderança."""
+    m = membro_ativo(user, igreja)
+    return bool(m and m.eh_lider_igreja)
+
+
+def igrejas_lidera_igreja_ids(user):
+    """IDs das igrejas onde o usuário é Líder de igreja (papel lider_igreja)."""
+    if not user or not user.is_authenticated:
+        return []
+    from .models import PapelIgreja
+
+    return list(
+        Membro.objects.filter(
+            usuario=user,
+            status=StatusVinculo.ATIVO,
+            papel=PapelIgreja.LIDER_IGREJA,
+        ).values_list("igreja_id", flat=True)
+    )
+
+
+def pode_votar_pauta(user, pauta):
+    """Quem pode registrar voto, conforme o canal da pauta.
+
+    - Canal dos Anciões: anciões/pastores/admins (eleitorado oficial).
+    - Canal da Liderança: líderes de igreja (eleitorado) + anciões em caráter
+      **consultivo** (o voto não conta para quórum — ver Pauta.votos_que_contam).
+    """
+    from .models import CanalPauta
+
+    if eh_lideranca_igreja(user, pauta.igreja):
+        return True
+    if pauta.canal == CanalPauta.LIDERANCA:
+        return eh_lider_igreja(user, pauta.igreja)
+    return False
+
+
 def eh_admin_igreja(user, igreja):
     """Administrador da igreja (papel admin_igreja) ou super admin.
 

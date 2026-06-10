@@ -201,6 +201,7 @@ function SelectPapel({ m, aoMudar }: { m: Membro; aoMudar: (m: Membro, papel: st
     >
       <option value="visitante">Visitante</option>
       <option value="membro">Membro</option>
+      <option value="lider_igreja">Líder de igreja</option>
       <option value="anciao">Ancião</option>
       <option value="pastor">Pastor</option>
       <option value="admin_igreja">Administrador</option>

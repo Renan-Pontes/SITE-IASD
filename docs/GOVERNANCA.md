@@ -29,6 +29,16 @@ Quando a pauta encerra **aprovada**, o sistema **aplica o payload automaticament
 > membro propõe → fica `pendente` → um ancião aprova. Para programação que afeta a
 > igreja inteira, use o Canal (votação completa).
 
+## Canais (`Pauta.canal`)
+
+- **Canal dos Anciões** (`anciaos`, padrão): governança da igreja. Eleitorado =
+  anciões/pastores/admins. Pautas aprovadas **aplicam-se** (criar grupo/sala,
+  alterar igreja, agendar evento).
+- **Canal da Liderança** (`lideranca`): espaço dos **líderes de igreja** (papel
+  entre membro e ancião) para deliberar e consultar. Eleitorado = líderes de
+  igreja. Anciões podem votar, mas o voto é **consultivo** (não conta para o
+  quórum). Não aplica mudanças na programação — só deliberação/enquete.
+
 ## Métodos de votação (`Pauta.metodo_votacao`)
 
 | Método | Como decide | Fecha cedo? |

@@ -19,7 +19,8 @@ em [`backend/API/roles.py`](../backend/API/roles.py) e
 | **super_admin** (Mestre) | Tudo. Cria/edita/exclui igrejas, promove administradores, vê auditoria. |
 | **admin_igreja** | Gerencia uma igreja: dados, salas, grupos, membros (aprovar/papéis), aprovar eventos, pautas. |
 | **ancião / pastor** | Aprovar eventos da igreja, criar/votar/encerrar pautas, aprovar membros, definir papéis. |
-| **líder/diretor de grupo** | Gerencia o grupo: aprovar membros, definir cargos, criar eventos do grupo, chat. |
+| **líder de igreja** | Nível entre membro e ancião. Tem o **Canal da Liderança** (cria pautas/enquetes com método próprio) e vê **eventos privados de qualquer grupo** da igreja. **Não** gere a programação (não aprova eventos nem cria grupos/salas). |
+| **líder/diretor de grupo** | Gerencia o grupo: aprovar membros, definir cargos, criar eventos do grupo, chat. (Cargo interno do grupo — ≠ líder de igreja.) |
 | **membro da igreja** | Vê a programação, confirma presença, **propõe eventos** (vão para aprovação), pede entrada em grupos. |
 | **membro de grupo** | Tudo de membro + chat do grupo + eventos privados do grupo. |
 | **visitante** | Vê a programação pública e pode pedir entrada numa igreja. |
@@ -43,13 +44,26 @@ em [`backend/API/roles.py`](../backend/API/roles.py) e
 | Editar/excluir evento | criador ou liderança da igreja |
 | Confirmar presença (RSVP) | qualquer usuário logado |
 | Ver evento | público aprovado: todos · privado: membros do grupo · pendente/rascunho: criador + liderança |
-| Criar/editar pauta · votar · encerrar | **somente liderança da igreja** (anciões) |
-| Ver votos (com autor) | liderança da igreja — autor oculto se a pauta for anônima |
+| Criar/editar pauta · votar · encerrar (Canal dos Anciões) | liderança da igreja (anciões) |
+| Criar/editar/votar/encerrar pauta (Canal da Liderança) | líderes de igreja; anciões votam de forma **consultiva** (não conta p/ quórum) |
+| Ver votos (com autor) | eleitorado do canal + proponente — autor oculto se anônima |
 | Ver auditoria | super_admin |
+
+## Canais de pauta (`Pauta.canal`)
+
+| Canal | Eleitorado (quórum) | Quem abre | Escopo |
+|-------|---------------------|-----------|--------|
+| `anciaos` (Canal dos Anciões) | anciões/pastores/admins | qualquer membro propõe | governança: aplica mudanças (grupo/sala/igreja/evento) |
+| `lideranca` (Canal da Liderança) | líderes de igreja | líder de igreja (ou ancião) | deliberação/enquete; **não** gere a programação |
+
+No Canal da Liderança os anciões podem votar, mas o voto é **consultivo**:
+`Pauta.votos_que_contam()` exclui votos de fora do eleitorado do canal.
 
 ## Visibilidade de eventos (resumo do `get_queryset`)
 
 - **Anônimo / visitante:** só eventos **aprovados e públicos**.
 - **Usuário logado:** os públicos + os que criou + os **privados de grupos** onde é
   membro ativo + (se for liderança) **tudo das igrejas que lidera** (inclui pendentes).
+- **líder de igreja:** além do acima, vê **eventos privados de qualquer grupo** da
+  sua igreja (aprovados).
 - **super_admin:** tudo.

@@ -69,6 +69,7 @@ export function tempoDesde(iso: string): string {
 const PAPEL: Record<string, string> = {
   visitante: "Visitante",
   membro: "Membro",
+  lider_igreja: "Líder de igreja",
   anciao: "Ancião",
   pastor: "Pastor",
   admin_igreja: "Administrador",

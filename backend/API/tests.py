@@ -503,6 +503,80 @@ class CanalAncioesTests(TestCase):
         self.assertEqual(resp.data["resultado"]["Sábado"], 2)
 
 
+class CanalLiderancaTests(TestCase):
+    def setUp(self):
+        self.igreja = Igreja.objects.create(nome="IASD Lid", cidade="SP", estado="SP")
+        self.l1 = cria_user("l1@iasd.app", "Lider Um")
+        Membro.objects.create(usuario=self.l1, igreja=self.igreja, papel=PapelIgreja.LIDER_IGREJA, status=StatusVinculo.ATIVO)
+        self.l2 = cria_user("l2@iasd.app", "Lider Dois")
+        Membro.objects.create(usuario=self.l2, igreja=self.igreja, papel=PapelIgreja.LIDER_IGREJA, status=StatusVinculo.ATIVO)
+        self.anciao = cria_user("anciao@iasd.app", "Jose Anciao")
+        Membro.objects.create(usuario=self.anciao, igreja=self.igreja, papel=PapelIgreja.ANCIAO, status=StatusVinculo.ATIVO)
+        self.membro = cria_user("membro@iasd.app", "Maria Membro")
+        Membro.objects.create(usuario=self.membro, igreja=self.igreja, papel=PapelIgreja.MEMBRO, status=StatusVinculo.ATIVO)
+
+    def _criar_lideranca(self, cliente, **extra):
+        payload = {"titulo": "Plano", "igreja": self.igreja.id, "canal": "lideranca", "metodo_votacao": "maioria_simples"}
+        payload.update(extra)
+        return cliente.post("/api/pautas/", payload, format="json")
+
+    def test_lider_cria_pauta_lideranca(self):
+        c = APIClient(); autentica(c, "l1@iasd.app")
+        r = self._criar_lideranca(c)
+        self.assertEqual(r.status_code, 201, r.content)
+        self.assertEqual(r.data["canal"], "lideranca")
+        self.assertEqual(r.data["total_eleitores"], 2)  # eleitorado = 2 líderes
+
+    def test_membro_nao_cria_lideranca(self):
+        c = APIClient(); autentica(c, "membro@iasd.app")
+        self.assertEqual(self._criar_lideranca(c).status_code, 403)
+
+    def test_lider_nao_vota_no_canal_anciaos(self):
+        a = APIClient(); autentica(a, "anciao@iasd.app")
+        pid = a.post("/api/pautas/", {"titulo": "Anc", "igreja": self.igreja.id, "canal": "anciaos"}, format="json").data["id"]
+        c = APIClient(); autentica(c, "l1@iasd.app")
+        # 403 (sem direito a voto) ou 404 (nem enxerga a pauta dos anciões).
+        self.assertIn(c.post(f"/api/pautas/{pid}/votar/", {"opcao": "sim"}, format="json").status_code, (403, 404))
+
+    def test_anciao_vota_consultivo_nao_conta(self):
+        c = APIClient(); autentica(c, "l1@iasd.app")
+        pid = self._criar_lideranca(c).data["id"]
+        # Ancião vota (consultivo) — permitido, mas não conta para o quórum.
+        a = APIClient(); autentica(a, "anciao@iasd.app")
+        self.assertEqual(a.post(f"/api/pautas/{pid}/votar/", {"opcao": "sim"}, format="json").status_code, 200)
+        det = a.get(f"/api/pautas/{pid}/")
+        self.assertEqual(det.data["total_votos"], 0)   # voto do ancião não entra
+        self.assertEqual(det.data["status"], "aberta")
+        # Os dois líderes votam → fecha aprovado.
+        c.post(f"/api/pautas/{pid}/votar/", {"opcao": "sim"}, format="json")
+        c2 = APIClient(); autentica(c2, "l2@iasd.app")
+        c2.post(f"/api/pautas/{pid}/votar/", {"opcao": "sim"}, format="json")
+        p = Pauta.objects.get(pk=pid)
+        self.assertEqual(p.status, "encerrada")
+        self.assertEqual(p.decisao, "aprovado")
+
+    def test_lider_ve_pautas_lideranca_na_lista(self):
+        c = APIClient(); autentica(c, "l1@iasd.app")
+        pid = self._criar_lideranca(c).data["id"]
+        outro = APIClient(); autentica(outro, "l2@iasd.app")
+        lst = outro.get("/api/pautas/?canal=lideranca")
+        ids = [p["id"] for p in lst.data.get("results", lst.data)]
+        self.assertIn(pid, ids)
+
+    def test_lider_ve_evento_privado_de_outro_grupo(self):
+        grupo = Grupo.objects.create(nome="Coral", igreja=self.igreja)
+        ev = Evento.objects.create(
+            titulo="Ensaio", igreja=self.igreja, grupo=grupo,
+            inicio=timezone.now(), fim=timezone.now() + timedelta(hours=1),
+            status=StatusEvento.APROVADO, visibilidade=VisibilidadeEvento.PRIVADO,
+            criado_por=self.anciao,
+        )
+        lider = APIClient(); autentica(lider, "l1@iasd.app")
+        self.assertEqual(lider.get(f"/api/eventos/{ev.id}/").status_code, 200)
+        comum = APIClient(); autentica(comum, "membro@iasd.app")
+        self.assertEqual(comum.get(f"/api/eventos/{ev.id}/").status_code, 404)
+
+
 class MetodosVotacaoTests(TestCase):
     def setUp(self):
         self.igreja = Igreja.objects.create(nome="IASD Metodos", cidade="SP", estado="SP")

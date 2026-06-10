@@ -1071,11 +1071,14 @@ class EventoViewSet(viewsets.ModelViewSet):
             ).values_list("grupo_id", flat=True)
             # Igrejas que lidera (vê pendentes/rascunhos para aprovar).
             igrejas_lidera = roles.igrejas_que_lidera_ids(user)
+            # Líder de igreja enxerga eventos privados de QUALQUER grupo da sua igreja.
+            igrejas_lider = roles.igrejas_lidera_igreja_ids(user)
             base = qs.filter(
                 publico
                 | Q(criado_por=user)
                 | Q(grupo_id__in=list(grupos_ids), status=StatusEvento.APROVADO)
                 | Q(igreja_id__in=igrejas_lidera)
+                | Q(igreja_id__in=igrejas_lider, status=StatusEvento.APROVADO)
             ).distinct()
 
         # Filtros de conveniência.
@@ -1293,59 +1296,92 @@ class PautaViewSet(viewsets.ModelViewSet):
         if roles.is_super(user):
             qs = base
         else:
-            # Liderança vê as pautas das igrejas que lidera; o proponente vê as suas
-            # (mesmo não sendo ancião) para acompanhar o andamento.
+            # Liderança (anciões) vê as pautas das igrejas que lidera; líderes de
+            # igreja veem as pautas do Canal da Liderança da sua igreja; o
+            # proponente vê as suas (mesmo não sendo eleitor) para acompanhar.
             igrejas = roles.igrejas_que_lidera_ids(user)
-            qs = base.filter(Q(igreja_id__in=igrejas) | Q(criada_por=user)).distinct()
+            lider_igrejas = roles.igrejas_lidera_igreja_ids(user)
+            qs = base.filter(
+                Q(igreja_id__in=igrejas)
+                | Q(criada_por=user)
+                | Q(canal="lideranca", igreja_id__in=lider_igrejas)
+            ).distinct()
+        canal = self.request.query_params.get("canal")
+        if canal in ("anciaos", "lideranca"):
+            qs = qs.filter(canal=canal)
         if self.request.query_params.get("proponente_me") == "true":
             qs = qs.filter(criada_por=user)
         return qs
 
     def perform_create(self, serializer):
-        igreja = serializer.validated_data["igreja"]
-        # Qualquer membro ativo pode PROPOR (vira pauta); só anciões votam.
-        if not (
-            roles.eh_membro(self.request.user, igreja)
-            or roles.eh_lideranca_igreja(self.request.user, igreja)
-        ):
-            from rest_framework.exceptions import PermissionDenied
+        from rest_framework.exceptions import PermissionDenied
 
-            raise PermissionDenied("Você precisa ser membro da igreja para propor pautas.")
-        pauta = serializer.save(criada_por=self.request.user)
-        log_acao(self.request.user, "criar_pauta", "Pauta", pauta.id, {"tipo": pauta.tipo})
-        # Confirma ao proponente.
+        igreja = serializer.validated_data["igreja"]
+        canal = serializer.validated_data.get("canal", "anciaos")
+        user = self.request.user
+
+        if canal == "lideranca":
+            # Canal da Liderança: só líderes de igreja (ou anciões/super) abrem pauta.
+            if not (
+                roles.eh_lider_igreja(user, igreja)
+                or roles.eh_lideranca_igreja(user, igreja)
+            ):
+                raise PermissionDenied(
+                    "O Canal da Liderança é exclusivo dos líderes de igreja."
+                )
+            nome_canal = "Canal da Liderança"
+            papeis_eleitores = [PapelIgreja.LIDER_IGREJA]
+        else:
+            # Canal dos Anciões: qualquer membro ativo pode PROPOR; só anciões votam.
+            if not (
+                roles.eh_membro(user, igreja)
+                or roles.eh_lideranca_igreja(user, igreja)
+            ):
+                raise PermissionDenied(
+                    "Você precisa ser membro da igreja para propor pautas."
+                )
+            nome_canal = "Canal dos Anciões"
+            papeis_eleitores = [PapelIgreja.ANCIAO, PapelIgreja.PASTOR, PapelIgreja.ADMIN]
+
+        pauta = serializer.save(criada_por=user)
+        log_acao(user, "criar_pauta", "Pauta", pauta.id, {"tipo": pauta.tipo, "canal": canal})
         notificar(
-            self.request.user,
+            user,
             "Proposta enviada para votação",
-            f"“{pauta.titulo}” foi enviada ao Canal dos Anciões. Acompanhe o andamento.",
+            f"“{pauta.titulo}” foi enviada ao {nome_canal}. Acompanhe o andamento.",
             tipo="pauta_proposta", link=f"/pauta/{pauta.id}",
         )
-        # Notifica os anciões/liderança da igreja sobre a nova pauta.
+        # Notifica o eleitorado do canal sobre a nova pauta.
         for lider in Membro.objects.filter(
-            igreja=igreja,
-            status=StatusVinculo.ATIVO,
-            papel__in=[PapelIgreja.ANCIAO, PapelIgreja.PASTOR, PapelIgreja.ADMIN],
-        ).exclude(usuario=self.request.user).select_related("usuario"):
+            igreja=igreja, status=StatusVinculo.ATIVO, papel__in=papeis_eleitores,
+        ).exclude(usuario=user).select_related("usuario"):
             notificar(
                 lider.usuario,
                 "📜 Nova pauta para votar",
-                f"“{pauta.titulo}” aguarda seu voto no Canal dos Anciões.",
+                f"“{pauta.titulo}” aguarda seu voto no {nome_canal}.",
                 tipo="pauta_nova",
                 link=f"/igreja/{igreja.id}/canal",
             )
 
+    def _pode_gerir(self, request, pauta):
+        """Quem edita/encerra a pauta: liderança da igreja, ou líder de igreja no
+        Canal da Liderança."""
+        if roles.eh_lideranca_igreja(request.user, pauta.igreja):
+            return True
+        return pauta.canal == "lideranca" and roles.eh_lider_igreja(request.user, pauta.igreja)
+
     def update(self, request, *args, **kwargs):
         pauta = self.get_object()
-        if not roles.eh_lideranca_igreja(request.user, pauta.igreja):
+        if not self._pode_gerir(request, pauta):
             return Response({"detail": "Sem permissão."}, status=403)
         return super().update(request, *args, **kwargs)
 
     @action(detail=True, methods=["post"])
     def votar(self, request, pk=None):
         pauta = self.get_object()
-        if not roles.eh_lideranca_igreja(request.user, pauta.igreja):
+        if not roles.pode_votar_pauta(request.user, pauta):
             return Response(
-                {"detail": "Apenas a liderança vota nas pautas."}, status=403
+                {"detail": "Você não faz parte do eleitorado desta pauta."}, status=403
             )
         if pauta.status == StatusPauta.ENCERRADA or pauta.expirada:
             return Response({"detail": "Votação encerrada."}, status=400)
@@ -1370,7 +1406,7 @@ class PautaViewSet(viewsets.ModelViewSet):
     @action(detail=True, methods=["post"])
     def encerrar(self, request, pk=None):
         pauta = self.get_object()
-        if not roles.eh_lideranca_igreja(request.user, pauta.igreja):
+        if not self._pode_gerir(request, pauta):
             return Response({"detail": "Sem permissão."}, status=403)
         pauta.encerrar_agora()
         log_acao(request.user, "encerrar_pauta", "Pauta", pauta.id)
@@ -1379,9 +1415,9 @@ class PautaViewSet(viewsets.ModelViewSet):
     @action(detail=True, methods=["get"])
     def votos(self, request, pk=None):
         pauta = self.get_object()
-        # Liderança ou o proponente (transparência da governança).
+        # Eleitorado (anciões; líderes no Canal da Liderança) ou o proponente.
         if not (
-            roles.eh_lideranca_igreja(request.user, pauta.igreja)
+            roles.pode_votar_pauta(request.user, pauta)
             or pauta.criada_por_id == request.user.id
         ):
             return Response({"detail": "Sem permissão."}, status=403)

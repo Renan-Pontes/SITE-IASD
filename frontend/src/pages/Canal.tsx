@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
-import { Link, Navigate, useNavigate, useParams } from "react-router-dom";
+import { Link, Navigate, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import {
-  ArrowLeft, Plus, Vote, Lock, Clock3, CheckCircle2, XCircle, Gavel,
+  ArrowLeft, Plus, Vote, Lock, Clock3, CheckCircle2, XCircle, Gavel, ShieldCheck,
   Building2, Users as UsersIcon, DoorOpen, CalendarPlus, ListChecks, MessageSquare,
 } from "lucide-react";
 import { api, ApiError } from "../api/client";
@@ -30,29 +30,48 @@ const TIPOS: { tipo: TipoPauta; label: string; icone: any; dica: string }[] = [
   { tipo: "outra", label: "Deliberação", icone: MessageSquare, dica: "Sim / Não / Abstenção" },
 ];
 
+// No Canal da Liderança os líderes deliberam, mas NÃO gerem a programação
+// da igreja — então só deliberação e enquete (sem criar grupo/sala/evento).
+const TIPOS_LIDERANCA: TipoPauta[] = ["outra", "enquete_livre"];
+
 export default function Canal() {
   const { id } = useParams();
   const nav = useNavigate();
-  const { lideroIgreja, carregando: authLoad } = useAuth();
+  const [params] = useSearchParams();
+  const canal = params.get("canal") === "lideranca" ? "lideranca" : "anciaos";
+  const { lideroIgreja, souLiderIgreja, carregando: authLoad } = useAuth();
   const [igreja, setIgreja] = useState<Igreja | null>(null);
   const [pautas, setPautas] = useState<Pauta[]>([]);
   const [carregando, setCarregando] = useState(true);
   const [criar, setCriar] = useState(false);
 
   const carregar = () => {
+    setCarregando(true);
     api
-      .get<Paginated<Pauta>>(`/api/pautas/?igreja=${id}&ordering=-criado_em`)
+      .get<Paginated<Pauta>>(`/api/pautas/?igreja=${id}&canal=${canal}&ordering=-criado_em`)
       .then((d) => setPautas(d.results))
       .finally(() => setCarregando(false));
   };
   useEffect(() => {
     api.get<Igreja>(`/api/igrejas/${id}/`).then(setIgreja).catch(() => {});
     carregar();
-  }, [id]);
+  }, [id, canal]);
 
   if (authLoad || !igreja) return <Carregando />;
-  if (!lideroIgreja(igreja.id)) return <Navigate to={`/igreja/${id}`} replace />;
 
+  const souAnciao = lideroIgreja(igreja.id);
+  const souLider = souLiderIgreja(igreja.id);
+  const podeAnciaos = souAnciao;
+  const podeLideranca = souLider || souAnciao;
+  const temAcesso = canal === "lideranca" ? podeLideranca : podeAnciaos;
+  if (!temAcesso) {
+    // Líder de igreja que cai no canal dos anciões vai para o seu canal.
+    if (canal === "anciaos" && podeLideranca)
+      return <Navigate to={`/igreja/${id}/canal?canal=lideranca`} replace />;
+    return <Navigate to={`/igreja/${id}`} replace />;
+  }
+
+  const eLideranca = canal === "lideranca";
   const abertas = pautas.filter((p) => p.status === "aberta");
   const encerradas = pautas.filter((p) => p.status === "encerrada");
 
@@ -64,11 +83,41 @@ export default function Canal() {
       <div className="flex items-center justify-between">
         <div>
           <h1 className="flex items-center gap-2 text-2xl font-extrabold text-slate-800 dark:text-slate-100">
-            <Gavel className="text-marca-600" /> Canal dos Anciões
+            {eLideranca ? (
+              <><ShieldCheck className="text-marca-600" /> Canal da Liderança</>
+            ) : (
+              <><Gavel className="text-marca-600" /> Canal dos Anciões</>
+            )}
           </h1>
           <p className="text-slate-500">{igreja.nome}</p>
         </div>
       </div>
+
+      {podeAnciaos && podeLideranca && (
+        <div className="flex gap-1 rounded-xl bg-slate-100 p-1 dark:bg-slate-800">
+          {([
+            ["anciaos", "Anciões"],
+            ["lideranca", "Liderança"],
+          ] as const).map(([k, t]) => (
+            <Link
+              key={k}
+              to={`/igreja/${id}/canal?canal=${k}`}
+              className={`flex-1 rounded-lg py-2 text-center text-sm font-semibold transition ${
+                canal === k ? "bg-white text-marca-700 shadow-sm dark:bg-slate-700 dark:text-marca-300" : "text-slate-500"
+              }`}
+            >
+              {t}
+            </Link>
+          ))}
+        </div>
+      )}
+
+      {eLideranca && (
+        <p className="rounded-xl bg-marca-50 p-3 text-sm text-marca-800 dark:bg-marca-900/20 dark:text-marca-200">
+          Espaço dos <b>líderes de igreja</b> para deliberar e consultar. Os anciões
+          podem opinar/votar, mas o voto deles é consultivo (não conta para o quórum).
+        </p>
+      )}
 
       <Botao full onClick={() => setCriar(true)}>
         <Plus size={18} /> Criar nova pauta
@@ -83,7 +132,15 @@ export default function Canal() {
               Pautas abertas ({abertas.length})
             </h2>
             {abertas.length === 0 ? (
-              <Vazio titulo="Nenhuma pauta aberta" descricao="Crie uma proposta para os anciões votarem." icone={<Vote size={48} />} />
+              <Vazio
+                titulo="Nenhuma pauta aberta"
+                descricao={
+                  eLideranca
+                    ? "Crie uma proposta para os líderes votarem."
+                    : "Crie uma proposta para os anciões votarem."
+                }
+                icone={<Vote size={48} />}
+              />
             ) : (
               <div className="space-y-3">
                 {abertas.map((p) => (
@@ -110,9 +167,9 @@ export default function Canal() {
         aberto={criar}
         aoFechar={() => setCriar(false)}
         igreja={igreja}
+        canal={canal}
         aoCriar={() => {
           setCriar(false);
-          setCarregando(true);
           carregar();
         }}
       />
@@ -163,11 +220,15 @@ function PautaCard({ p }: { p: Pauta }) {
 }
 
 function CriarPautaCanal({
-  aberto, aoFechar, igreja, aoCriar,
+  aberto, aoFechar, igreja, canal, aoCriar,
 }: {
-  aberto: boolean; aoFechar: () => void; igreja: Igreja; aoCriar: () => void;
+  aberto: boolean; aoFechar: () => void; igreja: Igreja; canal: "anciaos" | "lideranca"; aoCriar: () => void;
 }) {
   const toast = useToast();
+  const eLideranca = canal === "lideranca";
+  const tiposDisponiveis = eLideranca
+    ? TIPOS.filter((t) => TIPOS_LIDERANCA.includes(t.tipo))
+    : TIPOS;
   const [tipo, setTipo] = useState<TipoPauta | null>(null);
   const [salvando, setSalvando] = useState(false);
 
@@ -183,11 +244,12 @@ function CriarPautaCanal({
   const [anciaos, setAnciaos] = useState<string[]>([]);
 
   useEffect(() => {
+    if (eLideranca) return; // eleitorado da liderança não vem deste endpoint
     api
       .get<any[]>(`/api/igrejas/${igreja.id}/lideranca/`)
       .then((ls) => setAnciaos(ls.map((m) => m.usuario_detalhe?.nome).filter(Boolean)))
       .catch(() => {});
-  }, [igreja.id]);
+  }, [igreja.id, eLideranca]);
 
   // Específicos
   const [grupo, setGrupo] = useState({ nome: "", tipo: "ministerio", descricao: "" });
@@ -233,6 +295,7 @@ function CriarPautaCanal({
       igreja: igreja.id,
       tipo,
       categoria,
+      canal,
       metodo_votacao: metodo,
       anonima,
       permitir_justificativa: justificativa,
@@ -269,7 +332,9 @@ function CriarPautaCanal({
     setSalvando(true);
     try {
       await api.post("/api/pautas/", body);
-      toast.sucesso("Pauta criada! Os anciões foram notificados.");
+      toast.sucesso(
+        eLideranca ? "Pauta criada! Os líderes foram notificados." : "Pauta criada! Os anciões foram notificados.",
+      );
       reset();
       aoCriar();
     } catch (e) {
@@ -295,7 +360,7 @@ function CriarPautaCanal({
     >
       {!tipo ? (
         <div className="grid grid-cols-2 gap-2">
-          {TIPOS.map(({ tipo: t, label, icone: Icone, dica }) => (
+          {tiposDisponiveis.map(({ tipo: t, label, icone: Icone, dica }) => (
             <button
               key={t}
               onClick={() => escolherTipo(t)}

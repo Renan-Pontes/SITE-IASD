@@ -20,6 +20,7 @@ interface AuthState {
   ehSuper: boolean;
   souLideranca: boolean;
   lideroIgreja: (igrejaId: number) => boolean;
+  souLiderIgreja: (igrejaId: number) => boolean;
 }
 
 const Ctx = createContext<AuthState>(null as any);
@@ -77,6 +78,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     !!me?.vinculos_igreja.some(
       (v) => v.igreja === igrejaId && v.eh_lideranca && v.status === "ativo",
     );
+  // Líder de igreja (papel próprio, dono do Canal da Liderança).
+  const souLiderIgreja = (igrejaId: number) =>
+    !!me?.vinculos_igreja.some(
+      (v) => v.igreja === igrejaId && v.papel === "lider_igreja" && v.status === "ativo",
+    );
 
   return (
     <Ctx.Provider
@@ -90,6 +96,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         ehSuper,
         souLideranca,
         lideroIgreja,
+        souLiderIgreja,
       }}
     >
       {children}
