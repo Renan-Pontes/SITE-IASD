@@ -614,11 +614,25 @@ class MembroViewSet(viewsets.ModelViewSet):
         papel = request.data.get("papel")
         if papel not in PapelIgreja.values:
             return Response({"papel": "Papel inválido."}, status=400)
+        anterior = membro.papel
         membro.papel = papel
+        # Sem carry-over: troca de papel reinicia "papel_desde" (recorta o histórico
+        # visível aos líderes). Anciões/secretaria veem tudo, então isso não os limita.
+        if papel != anterior:
+            membro.papel_desde = timezone.now()
         if membro.status != StatusVinculo.ATIVO:
             membro.status = StatusVinculo.ATIVO
-        membro.save(update_fields=["papel", "status"])
-        log_acao(request.user, "definir_papel", "Membro", membro.id, {"papel": papel})
+        membro.save(update_fields=["papel", "papel_desde", "status"])
+
+        # Auditoria explícita de concessão/remoção de papel com autoridade.
+        com_poder = {PapelIgreja.ANCIAO, PapelIgreja.PASTOR, PapelIgreja.ADMIN, PapelIgreja.LIDER_IGREJA}
+        if papel in com_poder and anterior not in com_poder:
+            acao = "papel_concedido"
+        elif anterior in com_poder and papel not in com_poder:
+            acao = "papel_removido"
+        else:
+            acao = "papel_alterado"
+        log_acao(request.user, acao, "Membro", membro.id, {"de": anterior, "para": papel})
         notificar(
             membro.usuario,
             "Seu papel mudou",
@@ -1136,15 +1150,19 @@ class EventoViewSet(viewsets.ModelViewSet):
             ).values_list("grupo_id", flat=True)
             # Igrejas que lidera (vê pendentes/rascunhos para aprovar).
             igrejas_lidera = roles.igrejas_que_lidera_ids(user)
-            # Líder de igreja enxerga eventos privados de QUALQUER grupo da sua igreja.
-            igrejas_lider = roles.igrejas_lidera_igreja_ids(user)
-            base = qs.filter(
+            cond = (
                 publico
                 | Q(criado_por=user)
                 | Q(grupo_id__in=list(grupos_ids), status=StatusEvento.APROVADO)
                 | Q(igreja_id__in=igrejas_lidera)
-                | Q(igreja_id__in=igrejas_lider, status=StatusEvento.APROVADO)
-            ).distinct()
+            )
+            # Líder de igreja enxerga eventos privados de QUALQUER grupo da sua
+            # igreja — mas só os criados a partir do seu papel_desde (sem carry-over).
+            for ig_id, desde in Membro.objects.filter(
+                usuario=user, status=StatusVinculo.ATIVO, papel=PapelIgreja.LIDER_IGREJA
+            ).values_list("igreja_id", "papel_desde"):
+                cond |= Q(igreja_id=ig_id, status=StatusEvento.APROVADO, criado_em__gte=desde)
+            base = qs.filter(cond).distinct()
 
         # Filtros de conveniência.
         params = self.request.query_params
@@ -1410,19 +1428,24 @@ class PautaViewSet(viewsets.ModelViewSet):
             # igreja veem as pautas do Canal da Liderança da sua igreja; o
             # proponente vê as suas (mesmo não sendo eleitor) para acompanhar.
             igrejas = roles.igrejas_que_lidera_ids(user)
-            lider_igrejas = roles.igrejas_lidera_igreja_ids(user)
             # Secretaria enxerga (e audita) todas as pautas da sua igreja.
             sec_igrejas = list(
                 Membro.objects.filter(
                     usuario=user, status=StatusVinculo.ATIVO, secretaria=True
                 ).values_list("igreja_id", flat=True)
             )
-            qs = base.filter(
+            condicoes = (
                 Q(igreja_id__in=igrejas)
                 | Q(criada_por=user)
-                | Q(canal="lideranca", igreja_id__in=lider_igrejas)
                 | Q(igreja_id__in=sec_igrejas)
-            ).distinct()
+            )
+            # Líder de igreja: só enxerga o Canal da Liderança CRIADO a partir do
+            # seu papel_desde (sem carry-over de quando ainda não era líder).
+            for ig_id, desde in Membro.objects.filter(
+                usuario=user, status=StatusVinculo.ATIVO, papel=PapelIgreja.LIDER_IGREJA
+            ).values_list("igreja_id", "papel_desde"):
+                condicoes |= Q(canal="lideranca", igreja_id=ig_id, criado_em__gte=desde)
+            qs = base.filter(condicoes).distinct()
         canal = self.request.query_params.get("canal")
         if canal in ("anciaos", "lideranca"):
             qs = qs.filter(canal=canal)

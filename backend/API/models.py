@@ -279,6 +279,9 @@ class Membro(models.Model):
     # Cargo paralelo ao papel: a secretaria registra atas e tem acesso amplo
     # (inclusive aos votos de pautas anônimas — sob sigilo e com auditoria).
     secretaria = models.BooleanField(default=False)
+    # Desde quando o membro tem o papel atual. Reiniciado a cada troca de papel.
+    # Líderes só enxergam o histórico criado a partir desta data (sem carry-over).
+    papel_desde = models.DateTimeField(default=timezone.now)
     status = models.CharField(
         max_length=12, choices=StatusVinculo.choices, default=StatusVinculo.PENDENTE
     )

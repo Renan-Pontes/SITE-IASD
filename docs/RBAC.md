@@ -61,6 +61,20 @@ em [`backend/API/roles.py`](../backend/API/roles.py) e
 No Canal da Liderança os anciões podem votar, mas o voto é **consultivo**:
 `Pauta.votos_que_contam()` exclui votos de fora do eleitorado do canal.
 
+## Histórico vs. permissão (sem carry-over)
+
+A autorização é **sempre ao vivo** (cada request checa o papel atual). Não há
+herança do passado:
+
+- **Anciões / secretaria / admin:** veem **todo o histórico** e perdem o acesso
+  **imediatamente** ao serem rebaixados (403/404 nos endpoints sensíveis).
+- **Líder de igreja:** só enxerga o que foi criado **a partir do seu
+  `papel_desde`** — pautas do Canal da Liderança e eventos privados anteriores
+  à promoção **não aparecem**. `Membro.papel_desde` é reiniciado a cada troca de
+  papel (`definir_papel`).
+- **Auditoria:** trocas de papel geram `papel_concedido` / `papel_removido`
+  (com `{de, para}`).
+
 ## Visibilidade de eventos (resumo do `get_queryset`)
 
 - **Anônimo / visitante:** só eventos **aprovados e públicos**.

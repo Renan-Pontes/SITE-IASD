@@ -39,7 +39,7 @@ export default function Canal() {
   const nav = useNavigate();
   const [params] = useSearchParams();
   const canal = params.get("canal") === "lideranca" ? "lideranca" : "anciaos";
-  const { lideroIgreja, souLiderIgreja, carregando: authLoad } = useAuth();
+  const { lideroIgreja, souLiderIgreja, me, carregando: authLoad } = useAuth();
   const [igreja, setIgreja] = useState<Igreja | null>(null);
   const [pautas, setPautas] = useState<Pauta[]>([]);
   const [carregando, setCarregando] = useState(true);
@@ -118,6 +118,16 @@ export default function Canal() {
           podem opinar/votar, mas o voto deles é consultivo (não conta para o quórum).
         </p>
       )}
+
+      {eLideranca && souLider && !souAnciao && (() => {
+        const desde = me?.vinculos_igreja.find((v) => v.igreja === igreja.id)?.papel_desde;
+        return desde ? (
+          <p className="rounded-xl bg-slate-100 p-3 text-xs text-slate-500 dark:bg-slate-800 dark:text-slate-400">
+            🕓 Você vê o histórico da liderança a partir de quando assumiu o papel
+            ({new Date(desde).toLocaleDateString("pt-BR")}). Pautas anteriores não aparecem.
+          </p>
+        ) : null;
+      })()}
 
       <Botao full onClick={() => setCriar(true)}>
         <Plus size={18} /> Criar nova pauta

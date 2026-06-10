@@ -50,6 +50,7 @@ export interface VinculoIgreja {
   igreja_nome: string;
   papel: PapelIgreja;
   secretaria: boolean;
+  papel_desde: string;
   status: StatusVinculo;
   eh_lideranca: boolean;
   motivo_rejeicao: string;
@@ -106,6 +107,7 @@ export interface Membro {
   igreja_nome: string;
   papel: PapelIgreja;
   secretaria: boolean;
+  papel_desde: string;
   status: StatusVinculo;
   motivo_rejeicao: string;
   data_entrada: string;

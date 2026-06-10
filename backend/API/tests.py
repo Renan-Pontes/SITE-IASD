@@ -922,6 +922,59 @@ class SecretariaTests(TestCase):
         self.assertTrue(membro.secretaria)
 
 
+class HistoricoPapelTests(TestCase):
+    def setUp(self):
+        self.igreja = Igreja.objects.create(nome="IASD Hist", cidade="SP", estado="SP")
+        self.anciao = cria_user("anciao@iasd.app", "Jose Anciao")
+        Membro.objects.create(usuario=self.anciao, igreja=self.igreja, papel=PapelIgreja.ANCIAO, status=StatusVinculo.ATIVO)
+        self.lider = cria_user("lider@iasd.app", "Lucas Lider")
+        self.m_lider = Membro.objects.create(usuario=self.lider, igreja=self.igreja, papel=PapelIgreja.LIDER_IGREJA, status=StatusVinculo.ATIVO)
+        self.membro = cria_user("membro@iasd.app", "Maria Membro")
+        Membro.objects.create(usuario=self.membro, igreja=self.igreja, papel=PapelIgreja.MEMBRO, status=StatusVinculo.ATIVO)
+
+    def test_lider_ve_so_pautas_apos_papel_desde(self):
+        agora = timezone.now()
+        # Líder virou líder há 1h.
+        Membro.objects.filter(pk=self.m_lider.pk).update(papel_desde=agora - timedelta(hours=1))
+        antiga = Pauta.objects.create(titulo="Antiga", igreja=self.igreja, criada_por=self.anciao, canal="lideranca")
+        Pauta.objects.filter(pk=antiga.pk).update(criado_em=agora - timedelta(days=2))
+        nova = Pauta.objects.create(titulo="Nova", igreja=self.igreja, criada_por=self.anciao, canal="lideranca")
+        c = APIClient(); autentica(c, "lider@iasd.app")
+        lst = c.get("/api/pautas/?canal=lideranca")
+        ids = [p["id"] for p in lst.data.get("results", lst.data)]
+        self.assertIn(nova.id, ids)
+        self.assertNotIn(antiga.id, ids)  # criada antes de virar líder
+
+    def test_anciao_ve_todo_historico(self):
+        agora = timezone.now()
+        antiga = Pauta.objects.create(titulo="Antiga", igreja=self.igreja, criada_por=self.anciao)
+        Pauta.objects.filter(pk=antiga.pk).update(criado_em=agora - timedelta(days=400))
+        c = APIClient(); autentica(c, "anciao@iasd.app")
+        lst = c.get("/api/pautas/")
+        ids = [p["id"] for p in lst.data.get("results", lst.data)]
+        self.assertIn(antiga.id, ids)  # ancião vê tudo, sem recorte temporal
+
+    def test_remover_papel_perde_acesso_imediato(self):
+        pauta = Pauta.objects.create(titulo="P", igreja=self.igreja, criada_por=self.anciao)
+        c = APIClient(); autentica(c, "anciao@iasd.app")
+        self.assertEqual(c.post(f"/api/pautas/{pauta.id}/votar/", {"opcao": "sim"}, format="json").status_code, 200)
+        # Rebaixado a membro: perde acesso na hora (autorização ao vivo, sem carry-over).
+        Membro.objects.filter(usuario=self.anciao, igreja=self.igreja).update(papel=PapelIgreja.MEMBRO)
+        r = c.post(f"/api/pautas/{pauta.id}/votar/", {"opcao": "nao"}, format="json")
+        self.assertIn(r.status_code, (403, 404))
+
+    def test_definir_papel_loga_e_reinicia_desde(self):
+        m = Membro.objects.get(usuario=self.membro, igreja=self.igreja)
+        antes = m.papel_desde
+        c = APIClient(); autentica(c, "anciao@iasd.app")
+        r = c.post(f"/api/membros/{m.id}/definir_papel/", {"papel": "anciao"}, format="json")
+        self.assertEqual(r.status_code, 200, r.content)
+        m.refresh_from_db()
+        self.assertEqual(m.papel, PapelIgreja.ANCIAO)
+        self.assertGreater(m.papel_desde, antes)  # reiniciado
+        self.assertTrue(AuditLog.objects.filter(acao="papel_concedido", entidade_id=m.id).exists())
+
+
 class PublicoPautaTests(TestCase):
     def setUp(self):
         self.igreja = Igreja.objects.create(nome="IASD Pub", cidade="SP", estado="SP")

@@ -119,6 +119,7 @@ class MeSerializer(serializers.Serializer):
                 "igreja_nome": m.igreja.nome,
                 "papel": m.papel,
                 "secretaria": m.secretaria,
+                "papel_desde": m.papel_desde,
                 "status": m.status,
                 "eh_lideranca": m.eh_lideranca,
                 "motivo_rejeicao": m.motivo_rejeicao,
@@ -273,11 +274,12 @@ class MembroSerializer(serializers.ModelSerializer):
             "igreja_nome",
             "papel",
             "secretaria",
+            "papel_desde",
             "status",
             "motivo_rejeicao",
             "data_entrada",
         ]
-        read_only_fields = ["usuario", "data_entrada", "motivo_rejeicao"]
+        read_only_fields = ["usuario", "data_entrada", "motivo_rejeicao", "papel_desde"]
 
 
 # --------------------------------------------------------------------------- #
