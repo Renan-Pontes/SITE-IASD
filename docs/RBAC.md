@@ -40,6 +40,7 @@ em [`backend/API/roles.py`](../backend/API/roles.py) e
 | Entrar num grupo | usuário logado (vira `GrupoMembro` **pendente**) |
 | Aprovar membro de grupo · definir cargo | líder/diretor do grupo ou liderança da igreja |
 | Ver/postar no chat do grupo | membros ativos do grupo (e liderança) |
+| **Quem pode criar evento** | só **líder de grupo**, **líder de igreja** ou **ancião** (membro comum/visitante: botão escondido + 403) |
 | Criar evento **público** | vira **pauta** no Canal dos Anciões (ancião cria direto) |
 | Criar evento **privado** | **pendente** → líder do grupo / liderança aprova (ancião: direto) |
 | Aprovar/rejeitar/cancelar evento | liderança da igreja, ou líder do grupo (privados); cancelar: também o criador |

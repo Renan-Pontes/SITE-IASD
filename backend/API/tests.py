@@ -152,6 +152,11 @@ class EventoWorkflowTests(TestCase):
         Membro.objects.create(usuario=self.anciao, igreja=self.igreja, papel=PapelIgreja.ANCIAO, status=StatusVinculo.ATIVO)
         self.membro = cria_user("membro@iasd.app", "Maria Membro")
         Membro.objects.create(usuario=self.membro, igreja=self.igreja, papel=PapelIgreja.MEMBRO, status=StatusVinculo.ATIVO)
+        # Líder de grupo: pode criar eventos (privados -> pendente).
+        self.grupo = Grupo.objects.create(nome="Jovens", igreja=self.igreja)
+        self.lider = cria_user("lider@iasd.app", "Lucas Lider")
+        Membro.objects.create(usuario=self.lider, igreja=self.igreja, papel=PapelIgreja.MEMBRO, status=StatusVinculo.ATIVO)
+        GrupoMembro.objects.create(usuario=self.lider, grupo=self.grupo, cargo=CargoGrupo.DIRETOR, status=StatusVinculo.ATIVO)
         self.inicio = (timezone.now() + timedelta(days=5)).isoformat()
         self.fim = (timezone.now() + timedelta(days=5, hours=2)).isoformat()
 
@@ -166,10 +171,10 @@ class EventoWorkflowTests(TestCase):
         base.update(kw)
         return base
 
-    def test_membro_cria_pendente_e_anciao_aprova(self):
+    def test_lider_grupo_cria_pendente_e_anciao_aprova(self):
         client = APIClient()
-        autentica(client, "membro@iasd.app")
-        resp = client.post("/api/eventos/", self._payload(), format="json")
+        autentica(client, "lider@iasd.app")
+        resp = client.post("/api/eventos/", self._payload(grupo=self.grupo.id), format="json")
         self.assertEqual(resp.status_code, 201, resp.content)
         self.assertEqual(resp.data["status"], StatusEvento.PENDENTE)
         evento_id = resp.data["id"]
@@ -183,6 +188,12 @@ class EventoWorkflowTests(TestCase):
         resp = lider.post(f"/api/eventos/{evento_id}/aprovar/")
         self.assertEqual(resp.status_code, 200, resp.content)
         self.assertEqual(resp.data["status"], StatusEvento.APROVADO)
+
+    def test_membro_comum_nao_cria_evento(self):
+        client = APIClient()
+        autentica(client, "membro@iasd.app")
+        resp = client.post("/api/eventos/", self._payload(), format="json")
+        self.assertEqual(resp.status_code, 403, resp.content)
 
     def test_anciao_cria_aprovado_direto(self):
         client = APIClient()
@@ -980,6 +991,9 @@ class PublicoPautaTests(TestCase):
         self.igreja = Igreja.objects.create(nome="IASD Pub", cidade="SP", estado="SP")
         self.anciao = cria_user("anciao@iasd.app", "Jose Anciao")
         Membro.objects.create(usuario=self.anciao, igreja=self.igreja, papel=PapelIgreja.ANCIAO, status=StatusVinculo.ATIVO)
+        # Líder de igreja: cria eventos (público -> pauta, privado -> pendente).
+        self.lider = cria_user("lider@iasd.app", "Lucas Lider")
+        Membro.objects.create(usuario=self.lider, igreja=self.igreja, papel=PapelIgreja.LIDER_IGREJA, status=StatusVinculo.ATIVO)
         self.membro = cria_user("membro@iasd.app", "Maria Membro")
         Membro.objects.create(usuario=self.membro, igreja=self.igreja, papel=PapelIgreja.MEMBRO, status=StatusVinculo.ATIVO)
         self.ini = (timezone.now() + timedelta(days=4)).isoformat()
@@ -988,8 +1002,8 @@ class PublicoPautaTests(TestCase):
     def _payload(self, vis):
         return {"titulo": "Festa", "igreja": self.igreja.id, "inicio": self.ini, "fim": self.fim, "visibilidade": vis}
 
-    def test_publico_de_membro_vira_pauta(self):
-        c = APIClient(); autentica(c, "membro@iasd.app")
+    def test_publico_de_lider_vira_pauta(self):
+        c = APIClient(); autentica(c, "lider@iasd.app")
         r = c.post("/api/eventos/", self._payload("publico"), format="json")
         self.assertEqual(r.status_code, 202, r.content)
         self.assertEqual(r.data["status"], "pauta_aberta")
@@ -1002,14 +1016,19 @@ class PublicoPautaTests(TestCase):
         self.assertEqual(r.status_code, 201, r.content)
         self.assertEqual(r.data["status"], StatusEvento.APROVADO)
 
-    def test_privado_de_membro_pendente(self):
-        c = APIClient(); autentica(c, "membro@iasd.app")
+    def test_privado_de_lider_pendente(self):
+        c = APIClient(); autentica(c, "lider@iasd.app")
         r = c.post("/api/eventos/", self._payload("privado"), format="json")
         self.assertEqual(r.status_code, 201, r.content)
         self.assertEqual(r.data["status"], StatusEvento.PENDENTE)
 
-    def test_pauta_aprovada_cria_evento(self):
+    def test_membro_comum_nao_cria(self):
         c = APIClient(); autentica(c, "membro@iasd.app")
+        r = c.post("/api/eventos/", self._payload("publico"), format="json")
+        self.assertEqual(r.status_code, 403, r.content)
+
+    def test_pauta_aprovada_cria_evento(self):
+        c = APIClient(); autentica(c, "lider@iasd.app")
         pid = c.post("/api/eventos/", self._payload("publico"), format="json").data["pauta_id"]
         a = APIClient(); autentica(a, "anciao@iasd.app")
         a.post(f"/api/pautas/{pid}/votar/", {"opcao": "sim"}, format="json")

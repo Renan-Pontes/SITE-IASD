@@ -141,6 +141,31 @@ def eh_lideranca_grupo(user, grupo):
     return eh_lideranca_igreja(user, igreja)
 
 
+def lidera_algum_grupo(user, igreja):
+    """O usuário é líder/diretor de algum grupo desta igreja?"""
+    if not user or not user.is_authenticated or igreja is None:
+        return False
+    igreja_id = getattr(igreja, "pk", igreja)
+    return GrupoMembro.objects.filter(
+        usuario=user,
+        grupo__igreja_id=igreja_id,
+        cargo__in=[CargoGrupo.LIDER, CargoGrupo.DIRETOR],
+        status=StatusVinculo.ATIVO,
+    ).exists()
+
+
+def pode_criar_evento(user, igreja):
+    """Quem pode criar evento: líder de grupo, líder de igreja ou ancião (+super).
+
+    Membro comum e visitante NÃO criam (botão escondido + 403 no POST).
+    """
+    return (
+        eh_lideranca_igreja(user, igreja)
+        or eh_lider_igreja(user, igreja)
+        or lidera_algum_grupo(user, igreja)
+    )
+
+
 def igrejas_que_lidera_ids(user):
     """IDs das igrejas onde o usuário é liderança (para filtrar caixas de aprovação)."""
     if not user or not user.is_authenticated:

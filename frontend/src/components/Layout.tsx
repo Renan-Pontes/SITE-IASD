@@ -5,6 +5,7 @@ import { useAuth } from "../auth/AuthContext";
 import { api } from "../api/client";
 import { Avatar } from "../ui/components";
 import { Modal } from "../ui/Modal";
+import { BotaoCriarEvento } from "./BotaoCriarEvento";
 
 // Itens de navegação compartilhados entre a bottom-nav (mobile) e a sidebar (desktop).
 const ITENS = [
@@ -136,7 +137,7 @@ function BottomNav() {
 
 // --- Barra lateral (desktop ≥ lg) ---
 function Sidebar({ naoLidas }: { naoLidas: number }) {
-  const { me, logado, multiChurch, ehSuper, souLideranca } = useAuth();
+  const { me, logado, multiChurch, ehSuper, souLideranca, podeCriarEvento } = useAuth();
   const podeAuditoria =
     ehSuper || souLideranca || !!me?.vinculos_igreja.some((v) => v.secretaria && v.status === "ativo");
   return (
@@ -144,11 +145,9 @@ function Sidebar({ naoLidas }: { naoLidas: number }) {
       <div className="p-5">
         <Logo />
       </div>
-      {logado && (
+      {logado && podeCriarEvento && (
         <div className="px-3 pb-2">
-          <Link to="/evento/novo" className="btn-primary w-full !py-2.5" title="Criar evento">
-            <Plus size={18} /> Criar evento
-          </Link>
+          <BotaoCriarEvento variante="sidebar" />
         </div>
       )}
       <nav className="flex-1 space-y-1 px-3">
@@ -227,7 +226,7 @@ function Sidebar({ naoLidas }: { naoLidas: number }) {
 
 export function Layout() {
   const { pathname } = useLocation();
-  const { logado } = useAuth();
+  const { logado, podeCriarEvento } = useAuth();
   const nav = useNavigate();
   const naoLidas = useNaoLidas();
   const [ajuda, setAjuda] = useState(false);
@@ -264,8 +263,8 @@ export function Layout() {
         <BottomNav />
       </div>
 
-      {/* FAB "Novo evento" (mobile, redundância de descoberta) */}
-      {logado && (
+      {/* FAB "Novo evento" (mobile) — só para quem pode criar. */}
+      {logado && podeCriarEvento && (
         <Link
           to="/evento/novo"
           className="btn-primary fixed bottom-20 right-4 z-20 !rounded-full !px-5 shadow-lg lg:hidden"

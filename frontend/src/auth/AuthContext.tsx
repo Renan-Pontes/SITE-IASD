@@ -22,6 +22,8 @@ interface AuthState {
   lideroIgreja: (igrejaId: number) => boolean;
   souLiderIgreja: (igrejaId: number) => boolean;
   souSecretaria: (igrejaId: number) => boolean;
+  // Pode criar evento em alguma igreja (líder de grupo/igreja ou ancião).
+  podeCriarEvento: boolean;
   // Configuração pública (modo mono-igreja)
   multiChurch: boolean;
   igrejaUnica: IgrejaUnica | null;
@@ -114,6 +116,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     !!me?.vinculos_igreja.some(
       (v) => v.igreja === igrejaId && v.secretaria && v.status === "ativo",
     );
+  // Pode criar evento: líder de grupo/diretor, líder de igreja, ancião ou super.
+  const podeCriarEvento =
+    ehSuper ||
+    !!me?.vinculos_igreja.some(
+      (v) => (v.eh_lideranca || v.papel === "lider_igreja") && v.status === "ativo",
+    ) ||
+    !!me?.vinculos_grupo.some((v) => v.eh_lideranca && v.status === "ativo");
 
   return (
     <Ctx.Provider
@@ -129,6 +138,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         lideroIgreja,
         souLiderIgreja,
         souSecretaria,
+        podeCriarEvento,
         multiChurch,
         igrejaUnica,
       }}

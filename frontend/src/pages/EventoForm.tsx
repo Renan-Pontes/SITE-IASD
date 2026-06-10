@@ -35,7 +35,7 @@ export default function EventoForm() {
   const editando = !!id;
   const nav = useNavigate();
   const toast = useToast();
-  const { me } = useAuth();
+  const { me, podeCriarEvento } = useAuth();
 
   const minhasIgrejas = (me?.vinculos_igreja || []).filter((v) => v.status === "ativo");
   const [grupos, setGrupos] = useState<Grupo[]>([]);
@@ -191,6 +191,29 @@ export default function EventoForm() {
   };
 
   if (carregando) return <Carregando />;
+
+  // Empty-state educativo: membro comum / visitante não cria eventos.
+  if (!editando && !podeCriarEvento) {
+    return (
+      <div className="space-y-4">
+        <button onClick={() => nav(-1)} className="flex items-center gap-1 text-slate-500">
+          <ArrowLeft size={20} /> Voltar
+        </button>
+        <h1 className="text-2xl font-extrabold text-slate-800">Criar evento</h1>
+        <div className="rounded-2xl border border-slate-200 bg-slate-50 p-5 text-slate-600 dark:border-slate-700 dark:bg-slate-800/50 dark:text-slate-300">
+          <p className="font-semibold text-slate-800 dark:text-slate-100">
+            Eventos são criados pela liderança.
+          </p>
+          <p className="mt-1 text-sm">
+            Quem cria: <b>líderes de grupo</b>, <b>líderes de igreja</b> e <b>anciões</b>.
+            Tem uma ideia de evento? Fale com a liderança do seu grupo ou da igreja —
+            eles abrem a proposta (eventos públicos passam pelo Canal dos Anciões).
+          </p>
+        </div>
+        <Botao onClick={() => nav("/agenda")}>Ver a agenda</Botao>
+      </div>
+    );
+  }
 
   if (minhasIgrejas.length === 0) {
     return (

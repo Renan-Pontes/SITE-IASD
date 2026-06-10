@@ -122,7 +122,7 @@ export default function GrupoDetalhe() {
       {aba === "chat" && (
         <Chat grupoId={Number(id)} podeVer={!!souMembro || !!souLider} souLider={!!souLider} />
       )}
-      {aba === "eventos" && <EventosGrupo grupoId={Number(id)} />}
+      {aba === "eventos" && <EventosGrupo grupoId={Number(id)} podeCriar={!!souLider} />}
       {aba === "membros" && (
         <Membros grupoId={Number(id)} souLider={!!souLider} aoMudar={recarregarGrupo} />
       )}
@@ -563,7 +563,7 @@ function CriarEnqueteModal({
   );
 }
 
-function EventosGrupo({ grupoId }: { grupoId: number }) {
+function EventosGrupo({ grupoId, podeCriar }: { grupoId: number; podeCriar: boolean }) {
   const [eventos, setEventos] = useState<Evento[]>([]);
   const [carregando, setCarregando] = useState(true);
   useEffect(() => {
@@ -576,11 +576,14 @@ function EventosGrupo({ grupoId }: { grupoId: number }) {
   if (carregando) return <SkeletonLista n={2} />;
   return (
     <div className="space-y-3">
-      <Link to="/evento/novo" className="block">
-        <Botao variante="secondary" full>
-          <Plus size={18} /> Criar evento do grupo
-        </Botao>
-      </Link>
+      {/* Só o líder/diretor do grupo cria eventos. */}
+      {podeCriar && (
+        <Link to="/evento/novo" className="block">
+          <Botao variante="secondary" full>
+            <Plus size={18} /> Criar evento do grupo
+          </Botao>
+        </Link>
+      )}
       {eventos.length ? (
         eventos.map((ev) => <EventoCard key={ev.id} evento={ev} />)
       ) : (

@@ -1193,8 +1193,11 @@ class EventoViewSet(viewsets.ModelViewSet):
         serializer.is_valid(raise_exception=True)
         igreja = serializer.validated_data["igreja"]
         user = request.user
-        if not (roles.eh_membro(user, igreja) or roles.eh_lideranca_igreja(user, igreja)):
-            raise PermissionDenied("Você precisa ser membro da igreja para criar eventos.")
+        # Só líder de grupo, líder de igreja ou ancião criam eventos.
+        if not roles.pode_criar_evento(user, igreja):
+            raise PermissionDenied(
+                "Apenas líderes de grupo, líderes de igreja ou anciões criam eventos."
+            )
 
         visibilidade = serializer.validated_data.get("visibilidade", VisibilidadeEvento.PUBLICO)
         if visibilidade == VisibilidadeEvento.PUBLICO and not roles.eh_lideranca_igreja(user, igreja):
@@ -1222,11 +1225,11 @@ class EventoViewSet(viewsets.ModelViewSet):
     def perform_create(self, serializer):
         igreja = serializer.validated_data["igreja"]
         user = self.request.user
-        if not (roles.eh_membro(user, igreja) or roles.eh_lideranca_igreja(user, igreja)):
+        if not roles.pode_criar_evento(user, igreja):
             from rest_framework.exceptions import PermissionDenied
 
             raise PermissionDenied(
-                "Você precisa ser membro da igreja para criar eventos."
+                "Apenas líderes de grupo, líderes de igreja ou anciões criam eventos."
             )
         # Liderança aprova direto; demais entram na fila de aprovação.
         if roles.eh_lideranca_igreja(user, igreja):
